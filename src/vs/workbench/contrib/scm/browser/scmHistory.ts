@@ -19,6 +19,17 @@ function getNextColorIndex(colorIndex: number): number {
 	return colorIndex < graphColors.length - 1 ? colorIndex + 1 : 1;
 }
 
+function getLabelColorIndex(historyItem: ISCMHistoryItem, colorMap: Map<string, number>): number | undefined {
+	for (const label of historyItem.labels ?? []) {
+		const colorIndex = colorMap.get(label.title);
+		if (colorIndex !== undefined) {
+			return colorIndex;
+		}
+	}
+
+	return undefined;
+}
+
 function createPath(stroke: string): SVGPathElement {
 	const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 	path.setAttribute('fill', 'none');
@@ -65,73 +76,70 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 	const outputSwimlanes = historyItemViewModel.outputSwimlanes;
 
 	const inputIndex = inputSwimlanes.findIndex(node => node.id === historyItem.id);
-	const outputIndex = historyItem.parentIds.length === 0 ? -1 : outputSwimlanes.findIndex(node => node.id === historyItem.parentIds[0]);
+	const outputIndex = historyItem.parentIds.length === 0 ? -1 : findLastIndex(outputSwimlanes, historyItem.parentIds[0]);
 
 	const circleIndex = inputIndex !== -1 ? inputIndex : inputSwimlanes.length;
-	const circleColorIndex = inputIndex !== -1 ? inputSwimlanes[inputIndex].color : outputSwimlanes[circleIndex]?.color ?? 0;
+	const circleColorIndex =
+		outputIndex !== -1 ? outputSwimlanes[outputIndex].color :
+			inputIndex !== -1 ? inputSwimlanes[inputIndex].color : 0;
 
+	let outputSwimlaneIndex = 0;
 	for (let index = 0; index < inputSwimlanes.length; index++) {
-		const node = inputSwimlanes[index];
 		const color = graphColors[inputSwimlanes[index].color];
 
-		// Not the current commit
-		if (node.id !== historyItem.id) {
-			if (index < outputSwimlanes.length && node.id === outputSwimlanes[index].id) {
-				// Draw |
-				const path = drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, SWIMLANE_HEIGHT, color);
-				svg.append(path);
-			} else {
+		// Current commit
+		if (inputSwimlanes[index].id === historyItem.id) {
+			// Base commit
+			if (index !== circleIndex) {
 				const d: string[] = [];
 				const path = createPath(color);
 
-				// Draw |
-				d.push(`M ${SWIMLANE_WIDTH * (index + 1)} 0`);
-				d.push(`V 6`);
-
 				// Draw /
-				d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 1 ${(SWIMLANE_WIDTH * (index + 1)) - SWIMLANE_CURVE_RADIUS} ${SWIMLANE_HEIGHT / 2}`);
-
-				// Start walking backwards from the current index and
-				// find the first occurrence in the output swimlanes
-				// array
-				let nodeOutputIndex = -1;
-				for (let j = Math.min(index, outputSwimlanes.length) - 1; j >= 0; j--) {
-					if (outputSwimlanes[j].id === node.id) {
-						nodeOutputIndex = j;
-						break;
-					}
-				}
+				d.push(`M ${SWIMLANE_WIDTH * (index + 1)} 0`);
+				d.push(`A ${SWIMLANE_WIDTH} ${SWIMLANE_WIDTH} 0 0 1 ${SWIMLANE_WIDTH * (index)} ${SWIMLANE_WIDTH}`);
 
 				// Draw -
-				d.push(`H ${(SWIMLANE_WIDTH * (nodeOutputIndex + 1)) + SWIMLANE_CURVE_RADIUS}`);
-
-				// Draw /
-				d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 0 ${SWIMLANE_WIDTH * (nodeOutputIndex + 1)} ${(SWIMLANE_HEIGHT / 2) + SWIMLANE_CURVE_RADIUS}`);
-
-				// Draw |
-				d.push(`V ${SWIMLANE_HEIGHT}`);
+				d.push(`H ${SWIMLANE_WIDTH * (circleIndex + 1)}`);
 
 				path.setAttribute('d', d.join(' '));
 				svg.append(path);
+			} else {
+				outputSwimlaneIndex++;
 			}
+		} else {
+			// Not the current commit
+			if (outputSwimlaneIndex < outputSwimlanes.length &&
+				inputSwimlanes[index].id === outputSwimlanes[outputSwimlaneIndex].id) {
+				if (index === outputSwimlaneIndex) {
+					// Draw |
+					const path = drawVerticalLine(SWIMLANE_WIDTH * (index + 1), 0, SWIMLANE_HEIGHT, color);
+					svg.append(path);
+				} else {
+					const d: string[] = [];
+					const path = createPath(color);
 
-			continue;
-		}
+					// Draw |
+					d.push(`M ${SWIMLANE_WIDTH * (index + 1)} 0`);
+					d.push(`V 6`);
 
-		// Base commit
-		if (index !== circleIndex) {
-			const d: string[] = [];
-			const path = createPath(color);
+					// Draw /
+					d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 1 ${(SWIMLANE_WIDTH * (index + 1)) - SWIMLANE_CURVE_RADIUS} ${SWIMLANE_HEIGHT / 2}`);
 
-			// Draw /
-			d.push(`M ${SWIMLANE_WIDTH * (index + 1)} 0`);
-			d.push(`A ${SWIMLANE_WIDTH} ${SWIMLANE_WIDTH} 0 0 1 ${SWIMLANE_WIDTH * (index)} ${SWIMLANE_WIDTH}`);
+					// Draw -
+					d.push(`H ${(SWIMLANE_WIDTH * (outputSwimlaneIndex + 1)) + SWIMLANE_CURVE_RADIUS}`);
 
-			// Draw -
-			d.push(`H ${SWIMLANE_WIDTH * (circleIndex + 1)}`);
+					// Draw /
+					d.push(`A ${SWIMLANE_CURVE_RADIUS} ${SWIMLANE_CURVE_RADIUS} 0 0 0 ${SWIMLANE_WIDTH * (outputSwimlaneIndex + 1)} ${(SWIMLANE_HEIGHT / 2) + SWIMLANE_CURVE_RADIUS}`);
 
-			path.setAttribute('d', d.join(' '));
-			svg.append(path);
+					// Draw |
+					d.push(`V ${SWIMLANE_HEIGHT}`);
+
+					path.setAttribute('d', d.join(' '));
+					svg.append(path);
+				}
+
+				outputSwimlaneIndex++;
+			}
 		}
 	}
 
@@ -158,15 +166,15 @@ export function renderSCMHistoryItemGraph(historyItemViewModel: ISCMHistoryItemV
 		svg.append(path);
 	}
 
-	// Draw | to circle
+	// Draw | to *
 	if (inputIndex !== -1) {
-		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), 0, SWIMLANE_HEIGHT / 2, graphColors[circleColorIndex]);
+		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), 0, SWIMLANE_HEIGHT / 2, graphColors[inputSwimlanes[inputIndex].color]);
 		svg.append(path);
 	}
 
-	// Draw | from circle
+	// Draw | from *
 	if (outputIndex !== -1) {
-		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), SWIMLANE_HEIGHT / 2, SWIMLANE_HEIGHT, graphColors[circleColorIndex]);
+		const path = drawVerticalLine(SWIMLANE_WIDTH * (circleIndex + 1), SWIMLANE_HEIGHT / 2, SWIMLANE_HEIGHT, graphColors[outputSwimlanes[outputIndex].color]);
 		svg.append(path);
 	}
 
@@ -217,8 +225,8 @@ export function toISCMHistoryItemViewModelArray(historyItems: ISCMHistoryItem[],
 				if (node.id === historyItem.id) {
 					if (!firstParentAdded) {
 						outputSwimlanes.push({
-							...deepClone(node),
-							id: historyItem.parentIds[0]
+							id: historyItem.parentIds[0],
+							color: getLabelColorIndex(historyItem, colorMap) ?? node.color
 						});
 						firstParentAdded = true;
 					}
@@ -231,16 +239,9 @@ export function toISCMHistoryItemViewModelArray(historyItems: ISCMHistoryItem[],
 
 			// Add unprocessed parent(s) to the output
 			for (let i = firstParentAdded ? 1 : 0; i < historyItem.parentIds.length; i++) {
-				// Get color index based on the label
-				let labelColorIndex: number | undefined = undefined;
-				for (const label of historyItem.labels ?? []) {
-					labelColorIndex = colorMap.get(label.title);
-					if (labelColorIndex !== undefined) {
-						break;
-					}
-				}
+				// Color index (label -> next color)
+				colorIndex = getLabelColorIndex(historyItem, colorMap) ?? getNextColorIndex(colorIndex);
 
-				colorIndex = labelColorIndex ?? getNextColorIndex(colorIndex);
 				outputSwimlanes.push({
 					id: historyItem.parentIds[i],
 					color: colorIndex
