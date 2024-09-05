@@ -3,5 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-// empty placeholder declaration for the `chatParticipantDetection`-contribution point
-// https://github.com/microsoft/vscode/issues/227699
+.chat-inline-file-link-widget .monaco-icon-label {
+	display: inline-flex;
+}
+
+.chat-inline-file-link-widget .monaco-icon-label .monaco-highlighted-label {
+	white-space: normal;
+}
