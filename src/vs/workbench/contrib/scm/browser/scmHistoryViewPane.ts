@@ -32,7 +32,7 @@ import { asCssVariable, ColorIdentifier, foreground } from '../../../../platform
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IViewPaneOptions, ViewAction, ViewPane, ViewPaneShowActions } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
-import { renderSCMHistoryItemGraph, historyItemGroupLocal, historyItemGroupRemote, historyItemGroupBase, toISCMHistoryItemViewModelArray, SWIMLANE_WIDTH, renderSCMHistoryGraphPlaceholder, historyItemHoverDeletionsForeground, historyItemHoverLabelForeground, historyItemHoverAdditionsForeground, historyItemHoverDefaultLabelForeground, historyItemHoverDefaultLabelBackground } from './scmHistory.js';
+import { renderSCMHistoryItemGraph, toISCMHistoryItemViewModelArray, SWIMLANE_WIDTH, renderSCMHistoryGraphPlaceholder, historyItemHoverDeletionsForeground, historyItemHoverLabelForeground, historyItemHoverAdditionsForeground, historyItemHoverDefaultLabelForeground, historyItemHoverDefaultLabelBackground } from './scmHistory.js';
 import { isSCMHistoryItemLoadMoreTreeElement, isSCMHistoryItemViewModelTreeElement, isSCMRepository } from './util.js';
 import { ISCMHistoryItem, ISCMHistoryItemRef, ISCMHistoryItemViewModel, ISCMHistoryProvider, SCMHistoryItemLoadMoreTreeElement, SCMHistoryItemViewModelTreeElement } from '../common/history.js';
 import { HISTORY_VIEW_PANE_ID, ISCMProvider, ISCMRepository, ISCMService, ISCMViewService } from '../common/scm.js';
@@ -60,6 +60,7 @@ import { Iterable } from '../../../../base/common/iterator.js';
 import { clamp } from '../../../../base/common/numbers.js';
 import { observableConfigValue } from '../../../../platform/observable/common/platformObservableUtils.js';
 import { compare } from '../../../../base/common/strings.js';
+import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 
 type TreeElement = SCMHistoryItemViewModelTreeElement | SCMHistoryItemLoadMoreTreeElement;
 
@@ -292,6 +293,7 @@ class HistoryItemRenderer implements ITreeRenderer<SCMHistoryItemViewModelTreeEl
 
 	constructor(
 		private readonly hoverDelegate: IHoverDelegate,
+		@IClipboardService private readonly _clipboardService: IClipboardService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IHoverService private readonly _hoverService: IHoverService,
 		@IThemeService private readonly _themeService: IThemeService
@@ -315,16 +317,18 @@ class HistoryItemRenderer implements ITreeRenderer<SCMHistoryItemViewModelTreeEl
 		const historyItemViewModel = node.element.historyItemViewModel;
 		const historyItem = historyItemViewModel.historyItem;
 
-		const historyItemHover = this._hoverService.setupManagedHover(this.hoverDelegate, templateData.element, this.getTooltip(node.element));
+		const historyItemHover = this._hoverService.setupManagedHover(this.hoverDelegate, templateData.element, this._getHoverContent(node.element), {
+			actions: this._getHoverActions(historyItem),
+		});
 		templateData.elementDisposables.add(historyItemHover);
 
 		templateData.graphContainer.textContent = '';
 		templateData.graphContainer.appendChild(renderSCMHistoryItemGraph(historyItemViewModel));
 
 		const provider = node.element.repository.provider;
-		const currentHistoryItemGroup = provider.historyProvider.get()?.currentHistoryItemGroup?.get();
-		const extraClasses = currentHistoryItemGroup?.revision === historyItem.id ? ['history-item-current'] : [];
-		const [matches, descriptionMatches] = this.processMatches(historyItemViewModel, node.filterData);
+		const historyItemRef = provider.historyProvider.get()?.currentHistoryItemRef?.get();
+		const extraClasses = historyItemRef?.revision === historyItem.id ? ['history-item-current'] : [];
+		const [matches, descriptionMatches] = this._processMatches(historyItemViewModel, node.filterData);
 		templateData.label.setLabel(historyItem.subject, historyItem.author, { matches, descriptionMatches, extraClasses });
 
 		this._renderBadges(historyItem, templateData);
@@ -364,12 +368,29 @@ class HistoryItemRenderer implements ITreeRenderer<SCMHistoryItemViewModelTreeEl
 		}));
 	}
 
-	private getTooltip(element: SCMHistoryItemViewModelTreeElement): IManagedHoverTooltipMarkdownString {
+	private _getHoverActions(historyItem: ISCMHistoryItem) {
+		return [
+			{
+				commandId: 'workbench.scm.action.copyHistoryItemId',
+				iconClass: 'codicon.codicon-copy',
+				label: historyItem.displayId ?? historyItem.id,
+				run: () => this._clipboardService.writeText(historyItem.id)
+			},
+			{
+				commandId: 'workbench.scm.action.copyHistoryItemMessage',
+				iconClass: 'codicon.codicon-copy',
+				label: localize('historyItemMessage', "Message"),
+				run: () => this._clipboardService.writeText(historyItem.message)
+			}
+		];
+	}
+
+	private _getHoverContent(element: SCMHistoryItemViewModelTreeElement): IManagedHoverTooltipMarkdownString {
 		const colorTheme = this._themeService.getColorTheme();
 		const historyItem = element.historyItemViewModel.historyItem;
 
 		const markdown = new MarkdownString('', { isTrusted: true, supportThemeIcons: true });
-		markdown.appendMarkdown(`$(git-commit) \`${historyItem.displayId ?? historyItem.id}\`\n\n`);
+		// markdown.appendMarkdown(`$(git-commit) \`${historyItem.displayId ?? historyItem.id}\`\n\n`);
 
 		if (historyItem.author) {
 			markdown.appendMarkdown(`$(account) **${historyItem.author}**`);
@@ -421,7 +442,7 @@ class HistoryItemRenderer implements ITreeRenderer<SCMHistoryItemViewModelTreeEl
 		return { markdown, markdownNotSupportedFallback: historyItem.message };
 	}
 
-	private processMatches(historyItemViewModel: ISCMHistoryItemViewModel, filterData: LabelFuzzyScore | undefined): [IMatch[] | undefined, IMatch[] | undefined] {
+	private _processMatches(historyItemViewModel: ISCMHistoryItemViewModel, filterData: LabelFuzzyScore | undefined): [IMatch[] | undefined, IMatch[] | undefined] {
 		if (!filterData) {
 			return [undefined, undefined];
 		}
@@ -780,16 +801,20 @@ class SCMHistoryViewModel extends Disposable {
 	private _getGraphColorMap(historyItemRefs: ISCMHistoryItemRef[]): Map<string, ColorIdentifier | undefined> {
 		const repository = this.repository.get();
 		const historyProvider = repository?.provider.historyProvider.get();
-		const currentHistoryItemGroup = historyProvider?.currentHistoryItemGroup.get();
+		const historyItemRef = historyProvider?.currentHistoryItemRef.get();
+		const historyItemRemoteRef = historyProvider?.currentHistoryItemRemoteRef.get();
+		const historyItemBaseRef = historyProvider?.currentHistoryItemBaseRef.get();
 
 		const colorMap = new Map<string, ColorIdentifier | undefined>();
-		if (currentHistoryItemGroup) {
-			colorMap.set(currentHistoryItemGroup.id, historyItemGroupLocal);
-			if (currentHistoryItemGroup.remote) {
-				colorMap.set(currentHistoryItemGroup.remote.id, historyItemGroupRemote);
+
+		if (historyItemRef) {
+			colorMap.set(historyItemRef.id, historyItemRef.color);
+
+			if (historyItemRemoteRef) {
+				colorMap.set(historyItemRemoteRef.id, historyItemRemoteRef.color);
 			}
-			if (currentHistoryItemGroup.base) {
-				colorMap.set(currentHistoryItemGroup.base.id, historyItemGroupBase);
+			if (historyItemBaseRef) {
+				colorMap.set(historyItemBaseRef.id, historyItemBaseRef.color);
 			}
 		}
 
@@ -1047,101 +1072,113 @@ export class SCMHistoryViewPane extends ViewPane {
 		this._createTree(this._treeContainer);
 
 		this.onDidChangeBodyVisibility(async visible => {
-			if (visible) {
-				this._treeViewModel = this.instantiationService.createInstance(SCMHistoryViewModel);
-				this._visibilityDisposables.add(this._treeViewModel);
+			if (!visible) {
+				this._visibilityDisposables.clear();
+				return;
+			}
 
+			// Create view model
+			this._treeViewModel = this.instantiationService.createInstance(SCMHistoryViewModel);
+			this._visibilityDisposables.add(this._treeViewModel);
+
+			// Initial rendering
+			await this._progressService.withProgress({ location: this.id }, async () => {
 				const firstRepositoryInitialized = derived(this, reader => {
 					const repository = this._treeViewModel.repository.read(reader);
 					const historyProvider = repository?.provider.historyProvider.read(reader);
-					const currentHistoryItemGroup = historyProvider?.currentHistoryItemGroup.read(reader);
+					const historyItemRef = historyProvider?.currentHistoryItemRef.read(reader);
 
-					return currentHistoryItemGroup !== undefined ? repository : undefined;
+					return historyItemRef !== undefined ? true : undefined;
 				});
 
 				// Wait for first repository to be initialized
 				await waitForState(firstRepositoryInitialized);
 
 				// Set tree input
-				this._treeOperationSequencer.queue(async () => {
+				await this._treeOperationSequencer.queue(async () => {
 					await this._tree.setInput(this._treeViewModel);
 					this._tree.scrollTop = 0;
 				});
+			});
 
-				// Repository change
-				let isFirstRun = true;
-				this._visibilityDisposables.add(autorunWithStore((reader, store) => {
-					const repository = this._treeViewModel.repository.read(reader);
-					const historyProvider = repository?.provider.historyProvider.read(reader);
-					if (!repository || !historyProvider) {
-						return;
-					}
+			// Repository change
+			let isFirstRun = true;
+			this._visibilityDisposables.add(autorunWithStore((reader, store) => {
+				const repository = this._treeViewModel.repository.read(reader);
+				const historyProvider = repository?.provider.historyProvider.read(reader);
+				if (!repository || !historyProvider) {
+					return;
+				}
 
-					// Update context
-					this._scmProviderCtx.set(repository.provider.contextValue);
+				// Update context
+				this._scmProviderCtx.set(repository.provider.contextValue);
 
-					// Commit, Checkout
-					const historyItemRefSignal = signalFromObservable(this, historyProvider.currentHistoryItemRef);
+				// Publish
+				const historyItemRemoteRefIdSignal = signalFromObservable(this, derived(reader => {
+					return historyProvider.currentHistoryItemRemoteRef.read(reader)?.id;
+				}));
 
-					// Publish
-					const historyItemRefRemoteIdSignal = signalFromObservable(this, derived(reader => {
-						return historyProvider.currentHistoryItemRemoteRef.read(reader)?.id;
-					}));
+				// Fetch, Push
+				const historyItemRemoteRefRevision = derived(reader => {
+					return historyProvider.currentHistoryItemRemoteRef.read(reader)?.revision;
+				});
 
-					// Fetch, Push
-					const historyItemRefRemoteRevisionSignal = signalFromObservable(this, derived(reader => {
-						return historyProvider.currentHistoryItemRemoteRef.read(reader)?.revision;
-					}));
+				// HistoryItemRefs changed
+				store.add(
+					autorunWithStoreHandleChanges<{ refresh: boolean | 'ifScrollTop' }>({
+						owner: this,
+						createEmptyChangeSummary: () => ({ refresh: false }),
+						handleChange(context, changeSummary) {
+							changeSummary.refresh = context.didChange(historyItemRemoteRefRevision) ? 'ifScrollTop' : true;
+							return true;
+						},
+					}, (reader, changeSummary) => {
+						historyItemRemoteRefIdSignal.read(reader);
+						const historyItemRefValue = historyProvider.currentHistoryItemRef.read(reader);
+						const historyItemRemoteRefRevisionValue = historyItemRemoteRefRevision.read(reader);
 
-					// HistoryItemRefs changed
-					store.add(
-						autorunWithStoreHandleChanges<{ refresh: boolean | 'ifScrollTop' }>({
-							owner: this,
-							createEmptyChangeSummary: () => ({ refresh: false }),
-							handleChange(context, changeSummary) {
-								changeSummary.refresh = context.didChange(historyItemRefRemoteRevisionSignal) ? 'ifScrollTop' : true;
-								return true;
-							},
-						}, (reader, changeSummary) => {
-							historyItemRefSignal.read(reader);
-							historyItemRefRemoteIdSignal.read(reader);
-							historyItemRefRemoteRevisionSignal.read(reader);
+						// Commit, Checkout, Publish, Pull
+						if (changeSummary.refresh === true) {
+							this.refresh();
+							return;
+						}
 
-							if (changeSummary.refresh === true) {
+						if (changeSummary.refresh === 'ifScrollTop') {
+							// If the history item remote revision has changed, but it matches the history
+							// item revision, then it means that a Push operation was performed and it is
+							// safe to refresh the graph.
+							if (historyItemRefValue?.revision === historyItemRemoteRefRevisionValue) {
 								this.refresh();
 								return;
 							}
 
-							if (changeSummary.refresh === 'ifScrollTop') {
-								// Remote revision changes can occur as a result of a user action (Fetch, Push) but
-								// it can also occur as a result of background action (Auto Fetch). If the tree is
-								// scrolled to the top, we can safely refresh the tree.
-								if (this._tree.scrollTop === 0) {
-									this.refresh();
-									return;
-								}
-
-								// Show the "Outdated" badge on the view
-								this._repositoryOutdated.set(true, undefined);
+							// If the history item remote revision has changed, but it does not matches the
+							// history item revision, then a Fetch operation was performed. This can be the
+							// result of a user action (Fetch) or a background action (Auto Fetch). If the
+							// tree is scrolled to the top, we can safely refresh the tree.
+							if (this._tree.scrollTop === 0) {
+								this.refresh();
+								return;
 							}
-						}));
 
-					// HistoryItemRefs filter changed
-					store.add(runOnChange(this._treeViewModel.historyItemsFilter, () => {
-						this.refresh();
+							// Show the "Outdated" badge on the view
+							this._repositoryOutdated.set(true, undefined);
+						}
 					}));
 
-					// We skip refreshing the graph on the first execution of the autorun
-					// since the graph for the first repository is rendered when the tree
-					// input is set.
-					if (!isFirstRun) {
-						this.refresh();
-					}
-					isFirstRun = false;
+				// HistoryItemRefs filter changed
+				store.add(runOnChange(this._treeViewModel.historyItemsFilter, () => {
+					this.refresh();
 				}));
-			} else {
-				this._visibilityDisposables.clear();
-			}
+
+				// We skip refreshing the graph on the first execution of the autorun
+				// since the graph for the first repository is rendered when the tree
+				// input is set.
+				if (!isFirstRun) {
+					this.refresh();
+				}
+				isFirstRun = false;
+			}));
 		});
 	}
 
