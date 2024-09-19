@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../../../../base/common/cancellation.js';
+import { codiconsLibrary } from '../../../../../../base/common/codiconsLibrary.js';
 import { Disposable } from '../../../../../../base/common/lifecycle.js';
 import { Position } from '../../../../../../editor/common/core/position.js';
 import { Range } from '../../../../../../editor/common/core/range.js';
@@ -168,7 +169,7 @@ export class SelectAndInsertKernelVariableAction extends Action2 {
 		const variable = <string | undefined>context.variable;
 
 		if (variable !== undefined) {
-			this.addVariableReference(widget, variable, range);
+			this.addVariableReference(widget, variable, range, false);
 			return;
 		}
 
@@ -195,29 +196,34 @@ export class SelectAndInsertKernelVariableAction extends Action2 {
 			return;
 		}
 
-		this.addVariableReference(widget, pickedVariable.label, range);
+		this.addVariableReference(widget, pickedVariable.label, range, true);
 	}
 
-	private addVariableReference(widget: IChatWidget, variableName: string, range?: Range) {
+	private addVariableReference(widget: IChatWidget, variableName: string, range?: Range, updateText?: boolean) {
 		if (range) {
 			const text = `#kernelVariable:${variableName}`;
-			const editor = widget.inputEditor;
-			const success = editor.executeEdits('chatInsertFile', [{ range, text: text + ' ' }]);
-			if (!success) {
-				return;
+
+			if (updateText) {
+				const editor = widget.inputEditor;
+				const success = editor.executeEdits('chatInsertFile', [{ range, text: text + ' ' }]);
+				if (!success) {
+					return;
+				}
 			}
 
 			widget.getContrib<ChatDynamicVariableModel>(ChatDynamicVariableModel.ID)?.addReference({
 				id: 'vscode.notebook.variable',
 				range: { startLineNumber: range.startLineNumber, startColumn: range.startColumn, endLineNumber: range.endLineNumber, endColumn: range.startColumn + text.length },
-				data: variableName
+				data: variableName,
+				fullName: variableName,
+				icon: codiconsLibrary.variable,
 			});
 		} else {
-			const text = `kernelVariable:${variableName}`;
 			widget.getContrib<ChatContextAttachments>(ChatContextAttachments.ID)?.setContext(false, ...[{
 				id: 'vscode.notebook.variable',
-				name: text,
+				name: variableName,
 				value: variableName,
+				icon: codiconsLibrary.variable,
 				isDynamic: true
 			}]);
 		}
