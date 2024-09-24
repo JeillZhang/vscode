@@ -374,16 +374,24 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		this.inHistoryNavigation = false;
 
 		this._onDidLoadInputState.fire(historyEntry.state);
-		if (previous) {
-			// Set cursor to the end of the first view line, so if wrapped, it's the point where the line wraps
-			const endOfFirstLine = this._inputEditor._getViewModel()?.getLineLength(1) ?? 1;
-			this._inputEditor.setPosition({ lineNumber: 1, column: endOfFirstLine });
-		} else {
-			const model = this._inputEditor.getModel();
-			if (!model) {
-				return;
-			}
 
+		const model = this._inputEditor.getModel();
+		if (!model) {
+			return;
+		}
+
+		if (previous) {
+			const endOfFirstViewLine = this._inputEditor._getViewModel()?.getLineLength(1) ?? 1;
+			const endOfFirstModelLine = model.getLineLength(1);
+			if (endOfFirstViewLine === endOfFirstModelLine) {
+				// Not wrapped - set cursor to the end of the first line
+				this._inputEditor.setPosition({ lineNumber: 1, column: endOfFirstViewLine + 1 });
+			} else {
+				// Wrapped - set cursor one char short of the end of the first view line.
+				// If it's after the next character, the cursor shows on the second line.
+				this._inputEditor.setPosition({ lineNumber: 1, column: endOfFirstViewLine });
+			}
+		} else {
 			this._inputEditor.setPosition(getLastPosition(model));
 		}
 	}
@@ -901,6 +909,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			return;
 		}
 		this.followupsDisposables.clear();
+		dom.clearNode(this.followupsContainer);
 
 		if (items && items.length > 0) {
 			this.followupsDisposables.add(this.instantiationService.createInstance<typeof ChatFollowups<IChatFollowup>, ChatFollowups<IChatFollowup>>(ChatFollowups, this.followupsContainer, items, this.location, undefined, followup => this._onDidAcceptFollowup.fire({ followup, response })));
@@ -958,7 +967,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			followupsHeight: this.followupsContainer.offsetHeight,
 			inputPartEditorHeight: Math.min(this._inputEditor.getContentHeight(), this.inputEditorMaxHeight),
 			inputPartHorizontalPadding: this.options.renderStyle === 'compact' ? 12 : 32,
-			inputPartVerticalPadding: this.options.renderStyle === 'compact' ? 12 : 30,
+			inputPartVerticalPadding: this.options.renderStyle === 'compact' ? 12 : 28,
 			attachmentsHeight: this.attachedContextContainer.offsetHeight,
 			editorBorder: 2,
 			inputPartHorizontalPaddingInside: 12,
