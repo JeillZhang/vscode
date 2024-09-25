@@ -752,7 +752,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				widget.tabIndex = 0;
 
 				if (!this.attachedContextDisposables.isDisposed) {
-					this.attachedContextDisposables.add(this.hoverService.setupManagedHover(hoverDelegate, widget, hoverElement));
+					this.attachedContextDisposables.add(this.hoverService.setupManagedHover(hoverDelegate, widget, hoverElement, { trapFocus: false }));
 
 					// No delay for keyboard
 					this.attachedContextDisposables.add(dom.addDisposableListener(widget, 'keydown', (event) => {
@@ -800,6 +800,10 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				if (event.equals(KeyCode.Enter) || event.equals(KeyCode.Space)) {
 					this._indexOfLastAttachedContextDeletedWithKeyboard = index;
 				}
+			}
+
+			if (this._attachedContext.size === 0) {
+				this.focus();
 			}
 
 			this._onDidChangeHeight.fire();
