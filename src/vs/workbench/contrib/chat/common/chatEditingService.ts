@@ -35,6 +35,7 @@ export interface IChatEditingSession {
 	readonly entries: IObservable<readonly IModifiedFileEntry[]>;
 	readonly isVisible: boolean;
 	show(): Promise<void>;
+	remove(...uris: URI[]): void;
 	accept(...uris: URI[]): Promise<void>;
 	reject(...uris: URI[]): Promise<void>;
 	/**
@@ -45,7 +46,7 @@ export interface IChatEditingSession {
 
 export const enum WorkingSetEntryState {
 	Attached,
-	Edited,
+	Modified,
 	Accepted,
 	Rejected
 }
