@@ -198,12 +198,12 @@ export class ChatEditingService extends Disposable implements IChatEditingServic
 		}, { silent: true });
 	}
 
-	public createSnapshot(id: string): void {
-		this._currentSessionObs.get()?.createSnapshot(id);
+	public createSnapshot(requestId: string): void {
+		this._currentSessionObs.get()?.createSnapshot(requestId);
 	}
 
-	public async restoreSnapshot(id: string): Promise<void> {
-		await this._currentSessionObs.get()?.restoreSnapshot(id);
+	public async restoreSnapshot(requestId: string | undefined): Promise<void> {
+		await this._currentSessionObs.get()?.restoreSnapshot(requestId);
 	}
 
 	private installAutoApplyObserver(sessionId: string): IDisposable {
@@ -221,10 +221,29 @@ export class ChatEditingService extends Disposable implements IChatEditingServic
 			}
 		};
 
-		const openCodeBlockUris = (responseModel: IChatResponseModel) => {
+		const allSeenEdits = new ResourceMap<number>;
+
+		const handleResponseParts = (responseModel: IChatResponseModel) => {
 			for (const part of responseModel.response.value) {
 				if (part.kind === 'codeblockUri') {
 					this._editorService.openEditor({ resource: part.uri, options: { inactive: true, preserveFocus: true, pinned: true } });
+
+				} else if (part.kind === 'textEditGroup') {
+					// again ensure editor is open
+					this._editorService.openEditor({ resource: part.uri, options: { inactive: true, preserveFocus: true, pinned: true } });
+
+					const seen = allSeenEdits.get(part.uri) ?? 0;
+					const newEdits = part.edits.slice(seen);
+					allSeenEdits.set(part.uri, seen + newEdits.length);
+
+					if (newEdits.length > 0) {
+
+						this._continueEditingSession(async (builder, token) => {
+							for (const group of newEdits) {
+								builder.textEdits(part.uri, group, responseModel);
+							}
+						}, { silent: true });
+					}
 				}
 			}
 		};
@@ -234,11 +253,11 @@ export class ChatEditingService extends Disposable implements IChatEditingServic
 				const responseModel = e.request.response;
 				if (responseModel) {
 					if (responseModel.isComplete) {
-						openCodeBlockUris(responseModel);
+						handleResponseParts(responseModel);
 						onResponseComplete(responseModel);
 					} else {
 						const disposable = responseModel.onDidChange(() => {
-							openCodeBlockUris(responseModel);
+							handleResponseParts(responseModel);
 							if (responseModel.isComplete) {
 								onResponseComplete(responseModel);
 								disposable.dispose();
@@ -415,16 +434,16 @@ class ChatEditingTextModelContentProvider implements ITextModelContentProvider {
 	}
 }
 
-type ChatEditingSnapshotTextModelContentQueryData = { requestId: string };
+type ChatEditingSnapshotTextModelContentQueryData = { requestId: string | undefined };
 
 class ChatEditingSnapshotTextModelContentProvider implements ITextModelContentProvider {
 	public static readonly scheme = 'chat-editing-snapshot-text-model';
 
-	public static getSnapshotFileURI(requestId: string, path: string): URI {
+	public static getSnapshotFileURI(requestId: string | undefined, path: string): URI {
 		return URI.from({
 			scheme: ChatEditingSnapshotTextModelContentProvider.scheme,
 			path,
-			query: JSON.stringify({ requestId }),
+			query: JSON.stringify({ requestId: requestId ?? '' }),
 		});
 	}
 
@@ -442,7 +461,7 @@ class ChatEditingSnapshotTextModelContentProvider implements ITextModelContentPr
 		const data: ChatEditingSnapshotTextModelContentQueryData = JSON.parse(resource.query);
 
 		const session = this._currentSessionObs.get();
-		if (!session) {
+		if (!session || !data.requestId) {
 			return null;
 		}
 
@@ -527,12 +546,16 @@ class ChatEditingSession extends Disposable implements IChatEditingSession {
 		}
 	}
 
-	public createSnapshot(requestId: string): void {
+	public createSnapshot(requestId: string | undefined): void {
 		const snapshot = this._createSnapshot(requestId);
-		this._snapshots.set(requestId, snapshot);
+		if (requestId) {
+			this._snapshots.set(requestId, snapshot);
+		} else {
+			this._pendingSnapshot = snapshot;
+		}
 	}
 
-	private _createSnapshot(requestId: string): IChatEditingSessionSnapshot {
+	private _createSnapshot(requestId: string | undefined): IChatEditingSessionSnapshot {
 		const workingSet = Array.from(this._workingSet.values());
 		const entries = new ResourceMap<ISnapshotEntry>();
 		for (const entry of this._entriesObs.get()) {
@@ -564,14 +587,34 @@ class ChatEditingSession extends Disposable implements IChatEditingSession {
 		return snapshotEntries?.get(uri);
 	}
 
-	public async restoreSnapshot(requestId: string): Promise<void> {
-		const snapshot = this._snapshots.get(requestId);
-		if (snapshot) {
-			await this._restoreSnapshot(snapshot);
+	public async restoreSnapshot(requestId: string | undefined): Promise<void> {
+		if (requestId !== undefined) {
+			const snapshot = this._snapshots.get(requestId);
+			if (snapshot) {
+				await this._restoreSnapshot(snapshot);
+			}
+		} else {
+			await this._restoreSnapshot(undefined);
 		}
 	}
 
-	private async _restoreSnapshot(snapshot: IChatEditingSessionSnapshot): Promise<void> {
+	/**
+	 * A snapshot representing the state of the working set before a new request has been sent
+	 */
+	private _pendingSnapshot: IChatEditingSessionSnapshot | undefined;
+	private async _restoreSnapshot(snapshot: IChatEditingSessionSnapshot | undefined): Promise<void> {
+		if (!snapshot) {
+			if (!this._pendingSnapshot) {
+				return; // We don't have a pending snapshot that we can restore
+			}
+			// Restore pending snapshot
+			snapshot = this._pendingSnapshot;
+			this._pendingSnapshot = undefined;
+		} else {
+			// Create and save a pending snapshot
+			this.createSnapshot(undefined);
+		}
+
 		this._workingSet = new ResourceSet(snapshot.workingSet);
 		this._workingSetObs.set([...this._workingSet.values()], undefined);
 
@@ -592,6 +635,7 @@ class ChatEditingSession extends Disposable implements IChatEditingSession {
 		// Restore all entries from the snapshot
 		for (const snapshotEntry of snapshot.entries.values()) {
 			const entry = await this._getOrCreateModifiedFileEntry(snapshotEntry.resource, snapshotEntry.telemetryInfo);
+			entry.restoreFromSnapshot(snapshotEntry);
 			entriesArr.push(entry);
 		}
 
@@ -760,7 +804,7 @@ class ChatEditingSession extends Disposable implements IChatEditingSession {
 			result: responseModel.result
 		});
 		entry.applyEdits(textEdits);
-		await this._editorService.openEditor({ resource: entry.modifiedURI, options: { inactive: true } });
+		// await this._editorService.openEditor({ resource: entry.modifiedURI, options: { inactive: true } });
 	}
 
 	private async _resolve(): Promise<void> {
@@ -898,7 +942,7 @@ class ModifiedFileEntry extends Disposable implements IModifiedFileEntry {
 		this._register(this.doc.onDidChangeContent(e => this._mirrorEdits(e)));
 	}
 
-	createSnapshot(requestId: string): ISnapshotEntry {
+	createSnapshot(requestId: string | undefined): ISnapshotEntry {
 		return {
 			resource: this.modifiedURI,
 			languageId: this.modifiedModel.getLanguageId(),
