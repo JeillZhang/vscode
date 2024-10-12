@@ -5,6 +5,7 @@
 
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Event } from '../../../../base/common/event.js';
+import { ResourceMap } from '../../../../base/common/map.js';
 import { IObservable, ITransaction } from '../../../../base/common/observable.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IDocumentDiff } from '../../../../editor/common/diff/documentDiffProvider.js';
@@ -45,8 +46,8 @@ export interface IChatEditingSession {
 	readonly onDidChange: Event<void>;
 	readonly onDidDispose: Event<void>;
 	readonly state: IObservable<ChatEditingSessionState>;
-	readonly workingSet: IObservable<readonly URI[]>;
 	readonly entries: IObservable<readonly IModifiedFileEntry[]>;
+	readonly workingSet: ResourceMap<WorkingSetEntryState>;
 	readonly isVisible: boolean;
 	show(): Promise<void>;
 	remove(...uris: URI[]): void;
@@ -62,7 +63,9 @@ export const enum WorkingSetEntryState {
 	Modified,
 	Accepted,
 	Rejected,
+	Transient,
 	Attached,
+	Sent,
 }
 
 export interface IModifiedFileEntry {
