@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Codicon } from '../../../../base/common/codicons.js';
-import { DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
@@ -38,7 +38,7 @@ export class MovedChatViewPane extends ViewPane {
 	}
 }
 
-export class MoveChatViewContribution implements IWorkbenchContribution {
+export class MoveChatViewContribution extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.contrib.chatMovedViewWelcomeView';
 
@@ -57,6 +57,8 @@ export class MoveChatViewContribution implements IWorkbenchContribution {
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 	) {
+		super();
+
 		this.initialize();
 	}
 
@@ -113,7 +115,7 @@ export class MoveChatViewContribution implements IWorkbenchContribution {
 	}
 
 	private registerListeners(): void {
-		this.storageService.onDidChangeValue(StorageScope.APPLICATION, MoveChatViewContribution.hideMovedChatWelcomeViewStorageKey, new DisposableStore())(() => this.updateContextKey());
+		this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, MoveChatViewContribution.hideMovedChatWelcomeViewStorageKey, this._store)(() => this.updateContextKey()));
 	}
 
 	private registerCommands(): void {
@@ -208,11 +210,12 @@ export class MoveChatViewContribution implements IWorkbenchContribution {
 			localize('chatMovedMainMessage1Right', "Chat has been moved to the Secondary Side Bar on the right for a more integrated AI experience in your editor.");
 
 		const chatViewKeybinding = this.keybindingService.lookupKeybinding(CHAT_SIDEBAR_PANEL_ID)?.getLabel();
+		const copilotIcon = `$(${this.productService.defaultChatAgent?.icon ?? 'comment-discussion'})`;
 		let quicklyAccessMessage = undefined;
 		if (this.hasCommandCenterChat() && chatViewKeybinding) {
-			quicklyAccessMessage = localize('chatMovedCommandCenterAndKeybind', "You can quickly access Chat via the new Copilot icon in the editor title bar or with the keyboard shortcut {0}.", chatViewKeybinding);
+			quicklyAccessMessage = localize('chatMovedCommandCenterAndKeybind', "You can quickly access Chat via the new Copilot icon ({0}) in the editor title bar or with the keyboard shortcut {1}.", copilotIcon, chatViewKeybinding);
 		} else if (this.hasCommandCenterChat()) {
-			quicklyAccessMessage = localize('chatMovedCommandCenter', "You can quickly access Chat via the new Copilot icon in the editor title bar.");
+			quicklyAccessMessage = localize('chatMovedCommandCenter', "You can quickly access Chat via the new Copilot icon ({0}) in the editor title bar.", copilotIcon);
 		} else if (chatViewKeybinding) {
 			quicklyAccessMessage = localize('chatMovedKeybind', "You can quickly access Chat with the keyboard shortcut {0}.", chatViewKeybinding);
 		}
