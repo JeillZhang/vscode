@@ -310,6 +310,7 @@ export interface IDefaultChatAgent {
 	readonly chatWelcomeTitle: string;
 	readonly documentationUrl: string;
 	readonly privacyStatementUrl: string;
+	readonly collectionDocumentationUrl: string;
 	readonly providerId: string;
 	readonly providerName: string;
 	readonly providerScopes: string[];
@@ -317,4 +318,5 @@ export interface IDefaultChatAgent {
 	readonly entitlementChatEnabled: string;
 	readonly entitlementSkuKey: string;
 	readonly entitlementSku30DTrialValue: string;
+	readonly entitlementSkuAlternateUrl: string;
 }

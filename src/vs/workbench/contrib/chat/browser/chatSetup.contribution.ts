@@ -39,6 +39,8 @@ import { IViewDescriptorService, ViewContainerLocation } from '../../../common/v
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { getActiveElement } from '../../../../base/browser/dom.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 
 const defaultChat = {
 	extensionId: product.defaultChatAgent?.extensionId ?? '',
@@ -47,6 +49,7 @@ const defaultChat = {
 	chatWelcomeTitle: product.defaultChatAgent?.chatWelcomeTitle ?? '',
 	documentationUrl: product.defaultChatAgent?.documentationUrl ?? '',
 	privacyStatementUrl: product.defaultChatAgent?.privacyStatementUrl ?? '',
+	collectionDocumentationUrl: product.defaultChatAgent?.collectionDocumentationUrl ?? '',
 	providerId: product.defaultChatAgent?.providerId ?? '',
 	providerName: product.defaultChatAgent?.providerName ?? '',
 	providerScopes: product.defaultChatAgent?.providerScopes ?? [],
@@ -54,6 +57,7 @@ const defaultChat = {
 	entitlementSkuKey: product.defaultChatAgent?.entitlementSkuKey ?? '',
 	entitlementSku30DTrialValue: product.defaultChatAgent?.entitlementSku30DTrialValue ?? '',
 	entitlementChatEnabled: product.defaultChatAgent?.entitlementChatEnabled ?? '',
+	entitlementSkuAlternateUrl: product.defaultChatAgent?.entitlementSkuAlternateUrl ?? ''
 };
 
 type ChatSetupEntitlementEnablementClassification = {
@@ -102,7 +106,7 @@ class ChatSetupContribution extends Disposable implements IWorkbenchContribution
 		@IProductService private readonly productService: IProductService,
 		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
 		@IExtensionService private readonly extensionService: IExtensionService,
-		@IInstantiationService private readonly instantiationService: IInstantiationService
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super();
 
@@ -119,8 +123,8 @@ class ChatSetupContribution extends Disposable implements IWorkbenchContribution
 	}
 
 	private registerChatWelcome(): void {
-		const header = localize('setupPreamble1', "{0} is your AI pair programmer that helps you write code faster and smarter.", defaultChat.name);
-		const footer = localize('setupPreamble2', "By proceeding you agree to the [Privacy Statement]({0}).", defaultChat.privacyStatementUrl);
+		const header = localize('setupHeader', "{0} is your AI pair programmer.", defaultChat.name);
+		const footer = localize({ key: 'setupFooter', comment: ['{Locked="]({0})"}'] }, "By proceeding you agree to our [privacy statement]({0}).", defaultChat.privacyStatementUrl);
 
 		// Setup: Triggered (signed-out)
 		Registry.as<IChatViewsWelcomeContributionRegistry>(ChatViewsWelcomeExtensions.ChatViewsWelcomeRegistry).register({
@@ -137,7 +141,7 @@ class ChatSetupContribution extends Disposable implements IWorkbenchContribution
 				header,
 				`[${localize('signInAndSetup', "Sign in to use {0}", defaultChat.name)}](command:${ChatSetupSignInAndInstallChatAction.ID})`,
 				footer,
-				`[${localize('learnMore', "Learn More")}](${defaultChat.documentationUrl}) | [${localize('hideSetup', "Hide")}](command:${ChatSetupHideAction.ID} "${localize('hideSetup', "Hide")}")`,
+				`[${localize('learnMore', "Learn More")}](${defaultChat.documentationUrl})`,
 			].join('\n\n'), { isTrusted: true }),
 		});
 
@@ -156,7 +160,7 @@ class ChatSetupContribution extends Disposable implements IWorkbenchContribution
 				header,
 				`[${localize('setup', "Install {0}", defaultChat.name)}](command:${ChatSetupInstallAction.ID})`,
 				footer,
-				`[${localize('learnMore', "Learn More")}](${defaultChat.documentationUrl}) | [${localize('hideSetup', "Hide")}](command:${ChatSetupHideAction.ID} "${localize('hideSetup', "Hide")}")`,
+				`[${localize('learnMore', "Learn More")}](${defaultChat.documentationUrl})`,
 			].join('\n\n'), { isTrusted: true })
 		});
 
@@ -168,12 +172,13 @@ class ChatSetupContribution extends Disposable implements IWorkbenchContribution
 				ChatContextKeys.Setup.installed.negate()
 			)!,
 			icon: defaultChat.icon,
-			progress: localize('setupChatSigningIn', "Signing in to {0}...", defaultChat.providerName),
+			disableFirstLinkToButton: true,
 			content: new MarkdownString([
 				header,
+				localize('setupChatSigningIn', "$(loading~spin) Signing in to {0}...", defaultChat.providerName),
 				footer,
 				`[${localize('learnMore', "Learn More")}](${defaultChat.documentationUrl})`,
-			].join('\n\n'), { isTrusted: true }),
+			].join('\n\n'), { isTrusted: true, supportThemeIcons: true }),
 		});
 
 		// Setup: Installing
@@ -181,12 +186,13 @@ class ChatSetupContribution extends Disposable implements IWorkbenchContribution
 			title: defaultChat.chatWelcomeTitle,
 			when: ChatContextKeys.Setup.installing,
 			icon: defaultChat.icon,
-			progress: localize('setupChatInstalling', "Setting up Chat for you..."),
+			disableFirstLinkToButton: true,
 			content: new MarkdownString([
 				header,
+				localize('setupChatInstalling', "$(loading~spin) Setting up Chat for you..."),
 				footer,
 				`[${localize('learnMore', "Learn More")}](${defaultChat.documentationUrl})`,
-			].join('\n\n'), { isTrusted: true }),
+			].join('\n\n'), { isTrusted: true, supportThemeIcons: true }),
 		});
 	}
 
@@ -325,6 +331,7 @@ class ChatSetupRequestHelper {
 			return await requestService.request({
 				type,
 				url,
+				data: type === 'POST' ? JSON.stringify({}) : undefined,
 				headers: {
 					'Authorization': `Bearer ${session.accessToken}`
 				}
@@ -396,8 +403,7 @@ class ChatSetupTriggerAction extends Action2 {
 	constructor() {
 		super({
 			id: ChatSetupTriggerAction.ID,
-			title: ChatSetupTriggerAction.TITLE,
-			f1: false
+			title: ChatSetupTriggerAction.TITLE
 		});
 	}
 
@@ -414,13 +420,23 @@ class ChatSetupTriggerAction extends Action2 {
 class ChatSetupHideAction extends Action2 {
 
 	static readonly ID = 'workbench.action.chat.hideSetup';
-	static readonly TITLE = localize2('hideChatSetup', "Hide Chat Setup");
+	static readonly TITLE = localize2('hideChatSetup', "Hide {0}", defaultChat.name);
 
 	constructor() {
 		super({
 			id: ChatSetupHideAction.ID,
 			title: ChatSetupHideAction.TITLE,
-			f1: false
+			f1: true,
+			precondition: ContextKeyExpr.and(
+				ChatContextKeys.Setup.triggered,
+				ChatContextKeys.Setup.installed.negate()
+			),
+			menu: {
+				id: MenuId.ChatCommandCenter,
+				group: 'a_first',
+				order: 1,
+				when: ChatContextKeys.Setup.installed.negate()
+			}
 		});
 	}
 
@@ -428,6 +444,18 @@ class ChatSetupHideAction extends Action2 {
 		const viewsDescriptorService = accessor.get(IViewDescriptorService);
 		const layoutService = accessor.get(IWorkbenchLayoutService);
 		const instantiationService = accessor.get(IInstantiationService);
+		const configurationService = accessor.get(IConfigurationService);
+		const dialogService = accessor.get(IDialogService);
+
+		const { confirmed } = await dialogService.confirm({
+			message: localize('hideChatSetupConfirm', "Are you sure you want to hide {0}?", defaultChat.name),
+			detail: localize('hideChatSetupDetail', "You can restore chat controls from the 'chat.commandCenter.enabled' setting."),
+			primaryButton: localize('hideChatSetup', "Hide {0}", defaultChat.name)
+		});
+
+		if (!confirmed) {
+			return;
+		}
 
 		const location = viewsDescriptorService.getViewLocationById(ChatViewId);
 
@@ -439,6 +467,8 @@ class ChatSetupHideAction extends Action2 {
 				layoutService.setPartHidden(true, Parts.AUXILIARYBAR_PART); // hide if there are no views in the secondary sidebar
 			}
 		}
+
+		configurationService.updateValue('chat.commandCenter.enabled', false);
 	}
 }
 
@@ -454,7 +484,7 @@ class ChatSetupInstallAction extends Action2 {
 			category: CHAT_CATEGORY,
 			menu: {
 				id: MenuId.ChatCommandCenter,
-				group: 'a_open',
+				group: 'a_first',
 				order: 0,
 				when: ContextKeyExpr.and(
 					ChatContextKeys.Setup.signedIn,
@@ -475,6 +505,7 @@ class ChatSetupInstallAction extends Action2 {
 		const contextKeyService = accessor.get(IContextKeyService);
 		const viewsService = accessor.get(IViewsService);
 		const chatAgentService = accessor.get(IChatAgentService);
+		const instantiationService = accessor.get(IInstantiationService);
 
 		const signedIn = !!session;
 		const setupInstallingContextKey = ChatContextKeys.Setup.installing.bindTo(contextKeyService);
@@ -484,6 +515,8 @@ class ChatSetupInstallAction extends Action2 {
 		try {
 			setupInstallingContextKey.set(true);
 			showChatView(viewsService);
+
+			await instantiationService.invokeFunction(accessor => ChatSetupRequestHelper.request(accessor, defaultChat.entitlementSkuAlternateUrl, 'POST', session, CancellationToken.None));
 
 			await extensionsWorkbenchService.install(defaultChat.extensionId, {
 				enable: true,
@@ -520,7 +553,7 @@ class ChatSetupSignInAndInstallChatAction extends Action2 {
 			category: CHAT_CATEGORY,
 			menu: {
 				id: MenuId.ChatCommandCenter,
-				group: 'a_open',
+				group: 'a_first',
 				order: 0,
 				when: ContextKeyExpr.and(
 					ChatContextKeys.Setup.signedIn.negate(),
