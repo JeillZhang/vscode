@@ -3,9 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { DecorationOptions, l10n, Position, Range, TextEditor, TextEditorChange, TextEditorDecorationType, TextEditorChangeKind, ThemeColor, Uri, window, workspace, EventEmitter } from 'vscode';
+import { DecorationOptions, l10n, Position, Range, TextEditor, TextEditorChange, TextEditorDecorationType, TextEditorChangeKind, ThemeColor, Uri, window, workspace, EventEmitter, ConfigurationChangeEvent, StatusBarItem, StatusBarAlignment, Command } from 'vscode';
 import { Model } from './model';
-import { dispose, fromNow, IDisposable, pathEquals, runAndSubscribeEvent } from './util';
+import { dispose, fromNow, IDisposable, pathEquals } from './util';
 import { Repository } from './repository';
 import { throttle } from './decorators';
 import { BlameInformation } from './git';
@@ -113,6 +113,7 @@ export class GitBlameController {
 
 	constructor(private readonly _model: Model) {
 		this._disposables.push(new GitBlameEditorDecoration(this));
+		this._disposables.push(new GitBlameStatusBarItem(this));
 
 		this._model.onDidOpenRepository(this._onDidOpenRepository, this, this._disposables);
 		this._model.onDidCloseRepository(this._onDidCloseRepository, this, this._disposables);
@@ -274,26 +275,37 @@ class GitBlameEditorDecoration {
 		});
 		this._disposables.push(this._decorationType);
 
-		this._disposables.push(runAndSubscribeEvent(workspace.onDidChangeConfiguration, e => {
-			if (!e || e?.affectsConfiguration('git.blame.editorDecoration.enabled')) {
-				for (const textEditor of window.visibleTextEditors) {
-					this._updateDecorations(textEditor);
-				}
-			}
-		}));
-
+		workspace.onDidChangeConfiguration(this._onDidChangeConfiguration, this, this._disposables);
 		this._controller.onDidChangeBlameInformation(e => this._updateDecorations(e), this, this._disposables);
 	}
 
+	private _onDidChangeConfiguration(e: ConfigurationChangeEvent): void {
+		if (!e.affectsConfiguration('git.blame.editorDecoration.enabled')) {
+			return;
+		}
+
+		const enabled = this._isEnabled();
+		for (const textEditor of window.visibleTextEditors) {
+			if (enabled) {
+				this._updateDecorations(textEditor);
+			} else {
+				textEditor.setDecorations(this._decorationType, []);
+			}
+		}
+	}
+
+	private _isEnabled(): boolean {
+		const config = workspace.getConfiguration('git');
+		return config.get<boolean>('blame.editorDecoration.enabled', false);
+	}
+
 	private _updateDecorations(textEditor: TextEditor): void {
-		const enabled = workspace.getConfiguration('git').get<boolean>('blame.editorDecoration.enabled', false);
-		if (!enabled) {
-			textEditor.setDecorations(this._decorationType, []);
+		if (!this._isEnabled()) {
 			return;
 		}
 
 		const blameInformation = this._controller.textEditorBlameInformation.get(textEditor);
-		if (!blameInformation) {
+		if (!blameInformation || textEditor.document.uri.scheme !== 'file') {
 			textEditor.setDecorations(this._decorationType, []);
 			return;
 		}
@@ -319,6 +331,85 @@ class GitBlameEditorDecoration {
 				}
 			},
 		};
+	}
+
+	dispose() {
+		this._disposables = dispose(this._disposables);
+	}
+}
+
+class GitBlameStatusBarItem {
+	private _statusBarItem: StatusBarItem | undefined;
+
+	private _disposables: IDisposable[] = [];
+
+	constructor(private readonly _controller: GitBlameController) {
+		workspace.onDidChangeConfiguration(this._onDidChangeConfiguration, this, this._disposables);
+		window.onDidChangeActiveTextEditor(this._onDidChangeActiveTextEditor, this, this._disposables);
+
+		this._controller.onDidChangeBlameInformation(e => this._updateStatusBarItem(e), this, this._disposables);
+	}
+
+	private _onDidChangeConfiguration(e: ConfigurationChangeEvent): void {
+		if (!e.affectsConfiguration('git.blame.statusBarItem.enabled')) {
+			return;
+		}
+
+		if (this._isEnabled()) {
+			if (window.activeTextEditor) {
+				this._updateStatusBarItem(window.activeTextEditor);
+			}
+		} else {
+			this._statusBarItem?.dispose();
+			this._statusBarItem = undefined;
+		}
+	}
+
+	private _onDidChangeActiveTextEditor(): void {
+		if (!this._isEnabled()) {
+			return;
+		}
+
+		if (window.activeTextEditor) {
+			this._updateStatusBarItem(window.activeTextEditor);
+		} else {
+			this._statusBarItem?.hide();
+		}
+	}
+
+	private _isEnabled(): boolean {
+		const config = workspace.getConfiguration('git');
+		return config.get<boolean>('blame.statusBarItem.enabled', false);
+	}
+
+	private _updateStatusBarItem(textEditor: TextEditor): void {
+		if (!this._isEnabled() || textEditor !== window.activeTextEditor) {
+			return;
+		}
+
+		if (!this._statusBarItem) {
+			this._statusBarItem = window.createStatusBarItem('git.blame', StatusBarAlignment.Right, 200);
+			this._disposables.push(this._statusBarItem);
+		}
+
+		const blameInformation = this._controller.textEditorBlameInformation.get(textEditor);
+		if (!blameInformation || blameInformation.length === 0 || textEditor.document.uri.scheme !== 'file') {
+			this._statusBarItem.hide();
+			return;
+		}
+
+		if (typeof blameInformation[0].blameInformation === 'string') {
+			this._statusBarItem.text = `$(git-commit) ${blameInformation[0].blameInformation}`;
+		} else {
+			this._statusBarItem.text = `$(git-commit) ${blameInformation[0].blameInformation.authorName ?? ''} (${fromNow(blameInformation[0].blameInformation.date ?? new Date(), true, true)})`;
+			this._statusBarItem.command = {
+				title: l10n.t('View Commit'),
+				command: 'git.statusBar.viewCommit',
+				arguments: [textEditor.document.uri, blameInformation[0].blameInformation.id]
+			} satisfies Command;
+		}
+
+		this._statusBarItem.show();
 	}
 
 	dispose() {
