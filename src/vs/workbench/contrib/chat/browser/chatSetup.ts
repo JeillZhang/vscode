@@ -56,6 +56,7 @@ import { CHAT_EDITING_SIDEBAR_PANEL_ID, CHAT_SIDEBAR_PANEL_ID } from './chatView
 import { ChatViewsWelcomeExtensions, IChatViewsWelcomeContributionRegistry } from './viewsWelcome/chatViewsWelcome.js';
 import { IChatQuotasService } from './chatQuotasService.js';
 import { Checkbox } from '../../../../base/browser/ui/toggle/toggle.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 
 const defaultChat = {
 	extensionId: product.defaultChatAgent?.extensionId ?? '',
@@ -94,6 +95,25 @@ const ASK_FOR_PUBLIC_CODE_MATCHES = false; // TODO@bpasero revisit this
 const TRIGGER_SETUP_COMMAND_ID = 'workbench.action.chat.triggerSetup';
 const TRIGGER_SETUP_COMMAND_LABEL = localize2('triggerChatSetup', "Use AI Features with Copilot for Free...");
 
+export const SetupWelcomeViewKeys = new Set([ChatContextKeys.Setup.triggered.key, ChatContextKeys.Setup.installed.key, ChatContextKeys.Setup.signedOut.key, ChatContextKeys.Setup.canSignUp.key]);
+export const SetupWelcomeViewCondition = ContextKeyExpr.and(
+	ContextKeyExpr.has('config.chat.experimental.offerSetup'),
+	ContextKeyExpr.or(
+		ContextKeyExpr.and(
+			ChatContextKeys.Setup.triggered,
+			ChatContextKeys.Setup.installed.negate()
+		),
+		ContextKeyExpr.and(
+			ChatContextKeys.Setup.canSignUp,
+			ChatContextKeys.Setup.installed
+		),
+		ContextKeyExpr.and(
+			ChatContextKeys.Setup.signedOut,
+			ChatContextKeys.Setup.installed
+		)
+	)
+)!;
+
 export class ChatSetupContribution extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.chat.setup';
@@ -119,24 +139,8 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 	private registerChatWelcome(): void {
 		Registry.as<IChatViewsWelcomeContributionRegistry>(ChatViewsWelcomeExtensions.ChatViewsWelcomeRegistry).register({
 			title: localize('welcomeChat', "Welcome to Copilot"),
-			when: ContextKeyExpr.and(
-				ContextKeyExpr.has('config.chat.experimental.offerSetup'),
-				ContextKeyExpr.or(
-					ContextKeyExpr.and(
-						ChatContextKeys.Setup.triggered,
-						ChatContextKeys.Setup.installed.negate()
-					),
-					ContextKeyExpr.and(
-						ChatContextKeys.Setup.canSignUp,
-						ChatContextKeys.Setup.installed
-					),
-					ContextKeyExpr.and(
-						ChatContextKeys.Setup.signedOut,
-						ChatContextKeys.Setup.installed
-					)
-				)
-			)!,
-			icon: Codicon.copilot,
+			when: SetupWelcomeViewCondition,
+			icon: Codicon.copilotLarge,
 			content: disposables => disposables.add(this.instantiationService.createInstance(ChatSetupWelcomeContent, this.controller.value, this.context)).element,
 		});
 	}
@@ -336,6 +340,15 @@ class ChatSetupRequests extends Disposable {
 		this._register(this.authenticationService.onDidUnregisterAuthenticationProvider(e => {
 			if (e.id === defaultChat.providerId) {
 				this.resolve();
+			}
+		}));
+
+		this._register(this.context.onDidChange(() => {
+			if (!this.context.state.installed || this.context.state.entitlement === ChatEntitlement.Unknown) {
+				// When the extension is not installed or the user is not entitled
+				// make sure to clear quotas so that any indicators are also gone
+				this.state = { entitlement: this.state.entitlement, quotas: undefined };
+				this.chatQuotasService.clearQuotas();
 			}
 		}));
 	}
@@ -734,7 +747,8 @@ class ChatSetupController extends Disposable {
 
 		this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult, signedIn });
 
-		if (activeElement === getActiveElement()) {
+		const currentActiveElement = getActiveElement();
+		if (activeElement === currentActiveElement || currentActiveElement === mainWindow.document.body) {
 			(await showCopilotView(this.viewsService))?.focusInput();
 		}
 	}
