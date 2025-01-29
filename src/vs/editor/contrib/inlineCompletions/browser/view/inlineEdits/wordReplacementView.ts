@@ -40,6 +40,9 @@ export const transparentHoverBackground = registerColor(
 );
 
 export class WordReplacementView extends Disposable implements IInlineEditsView {
+
+	public static MAX_LENGTH = 100;
+
 	private readonly _start = this._editor.observePosition(constObservable(this._edit.range.getStartPosition()), this._store);
 	private readonly _end = this._editor.observePosition(constObservable(this._edit.range.getEndPosition()), this._store);
 
@@ -338,11 +341,6 @@ export class LineReplacementView extends Disposable implements IInlineEditsView 
 		const topOfOriginalLines = this._editor.editor.getTopForLineNumber(startLineNumber) - scrollTop;
 		const bottomOfOriginalLines = this._editor.editor.getBottomForLineNumber(endLineNumber) - scrollTop;
 
-		if (bottomOfOriginalLines <= 0) {
-			this._viewZoneInfo.set(undefined, undefined);
-			return undefined;
-		}
-
 		// Box Widget positioning
 		const originalLinesOverlay = Rect.fromLeftTopWidthHeight(
 			editorLeftOffset + prefixLeftOffset,
@@ -370,6 +368,8 @@ export class LineReplacementView extends Disposable implements IInlineEditsView 
 			if (!activeViewZone || activeViewZone.lineNumber !== viewZoneLineNumber || activeViewZone.height !== viewZoneHeight) {
 				this._viewZoneInfo.set({ height: viewZoneHeight, lineNumber: viewZoneLineNumber }, undefined);
 			}
+		} else if (this._viewZoneInfo.get()) {
+			this._viewZoneInfo.set(undefined, undefined);
 		}
 
 		return {
