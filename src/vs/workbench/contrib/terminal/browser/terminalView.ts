@@ -280,8 +280,9 @@ export class TerminalViewPane extends ViewPane {
 			case TerminalCommandId.Focus: {
 				if (action instanceof MenuItemAction) {
 					const actions = getFlatContextMenuActions(this._singleTabMenu.getActions({ shouldForwardArgs: true }));
-					return this._disposableStore.add(this._instantiationService.createInstance(SingleTerminalTabActionViewItem, action, actions));
+					return this._instantiationService.createInstance(SingleTerminalTabActionViewItem, action, actions);
 				}
+				break;
 			}
 			case TerminalCommandId.New: {
 				if (action instanceof MenuItemAction) {
