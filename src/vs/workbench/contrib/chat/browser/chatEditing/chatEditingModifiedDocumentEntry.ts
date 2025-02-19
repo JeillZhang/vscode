@@ -8,6 +8,7 @@ import { IReference, toDisposable } from '../../../../../base/common/lifecycle.j
 import { observableValue, IObservable, ITransaction, autorun, transaction } from '../../../../../base/common/observable.js';
 import { themeColorFromId } from '../../../../../base/common/themables.js';
 import { assertType } from '../../../../../base/common/types.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { getCodeEditor } from '../../../../../editor/browser/editorBrowser.js';
 import { ISingleEditOperation, EditOperation } from '../../../../../editor/common/core/editOperation.js';
 import { OffsetEdit } from '../../../../../editor/common/core/offsetEdit.js';
@@ -39,7 +40,7 @@ import { IChatResponseModel } from '../../common/chatModel.js';
 import { IChatService } from '../../common/chatService.js';
 import { ChatEditingCodeEditorIntegration } from './chatEditingCodeEditorIntegration.js';
 import { AbstractChatEditingModifiedFileEntry, pendingRewriteMinimap, IModifiedEntryTelemetryInfo, ISnapshotEntry } from './chatEditingModifiedFileEntry.js';
-import { ChatEditingSnapshotTextModelContentProvider } from './chatEditingTextModelContentProviders.js';
+import { ChatEditingSnapshotTextModelContentProvider, ChatEditingTextModelContentProvider } from './chatEditingTextModelContentProviders.js';
 
 
 export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifiedFileEntry implements IModifiedFileEntry {
@@ -87,9 +88,6 @@ export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifie
 	private _diffOperationIds: number = 0;
 
 	private readonly _diffInfo = observableValue<IDocumentDiff>(this, nullDocumentDiff);
-	get diffInfo(): IObservable<IDocumentDiff> {
-		return this._diffInfo;
-	}
 
 	readonly changesCount = this._diffInfo.map(diff => diff.changes.length);
 
@@ -98,6 +96,8 @@ export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifie
 
 
 	private readonly _diffTrimWhitespace: IObservable<boolean>;
+
+	readonly originalURI: URI;
 
 	constructor(
 		resourceRef: IReference<IResolvedTextEditorModel>,
@@ -129,6 +129,7 @@ export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifie
 
 		this.docFileEditorModel = this._register(resourceRef).object as IResolvedTextFileEditorModel;
 		this.doc = resourceRef.object.textEditorModel;
+		this.originalURI = ChatEditingTextModelContentProvider.getFileURI(telemetryInfo.sessionId, this.entryId, this.modifiedURI.path);
 
 		this.initialContent = initialContent ?? this.doc.getValue();
 		const docSnapshot = this.docSnapshot = this._register(
@@ -332,7 +333,7 @@ export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifie
 		}
 		this.docSnapshot.pushEditOperations(null, edits, _ => null);
 		await this._updateDiffInfoSeq();
-		if (this.diffInfo.get().identical) {
+		if (this._diffInfo.get().identical) {
 			this._stateObs.set(WorkingSetEntryState.Accepted, undefined);
 		}
 		return true;
@@ -349,7 +350,7 @@ export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifie
 		}
 		this.doc.pushEditOperations(null, edits, _ => null);
 		await this._updateDiffInfoSeq();
-		if (this.diffInfo.get().identical) {
+		if (this._diffInfo.get().identical) {
 			this._stateObs.set(WorkingSetEntryState.Rejected, undefined);
 		}
 		return true;
@@ -452,6 +453,6 @@ export class ChatEditingModifiedDocumentEntry extends AbstractChatEditingModifie
 	protected _createEditorIntegration(editor: IEditorPane): IModifiedFileEntryEditorIntegration {
 		const codeEditor = getCodeEditor(editor.getControl());
 		assertType(codeEditor);
-		return this._instantiationService.createInstance(ChatEditingCodeEditorIntegration, codeEditor, this);
+		return this._instantiationService.createInstance(ChatEditingCodeEditorIntegration, codeEditor, this, this._diffInfo);
 	}
 }
