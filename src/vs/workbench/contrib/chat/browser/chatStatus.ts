@@ -10,9 +10,7 @@ import { language, OS } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
-import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
-import { IWorkbenchAssignmentService } from '../../../services/assignment/common/assignmentService.js';
 import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, ShowTooltipCommand, StatusbarAlignment, TooltipContent } from '../../../services/statusbar/browser/statusbar.js';
 import { ChatContextKeys } from '../common/chatContextKeys.js';
 import { IChatQuotasService } from '../common/chatQuotasService.js';
@@ -26,25 +24,33 @@ import { Checkbox } from '../../../../base/browser/ui/toggle/toggle.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Command } from '../../../../editor/common/languages.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { Lazy } from '../../../../base/common/lazy.js';
+import { registerColor, transparent } from '../../../../platform/theme/common/colorRegistry.js';
+import { ACTIVITY_BAR_BADGE_BACKGROUND, ACTIVITY_BAR_BADGE_FOREGROUND } from '../../../common/theme.js';
+
+const GAUGE_BACKGROUND = registerColor('gauge.background', ACTIVITY_BAR_BADGE_BACKGROUND, localize('gaugeBackground', "Gauge background color."));
+
+registerColor('gauge.foreground', {
+	dark: transparent(GAUGE_BACKGROUND, 0.3),
+	light: transparent(GAUGE_BACKGROUND, 0.3),
+	hcDark: ACTIVITY_BAR_BADGE_FOREGROUND,
+	hcLight: ACTIVITY_BAR_BADGE_FOREGROUND
+}, localize('gaugeForeground', "Gauge foreground color."));
 
 export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'chat.statusBarEntry';
 
-	private readonly treatment = this.assignmentService.getTreatment<boolean>('config.chat.experimental.statusIndicator.enabled'); //TODO@bpasero remove this experiment eventually
-
 	private entry: IStatusbarEntryAccessor | undefined = undefined;
 	private readonly entryDisposables = this._register(new MutableDisposable());
 
-	private dateFormatter = safeIntl.DateTimeFormat(language, { year: 'numeric', month: 'long', day: 'numeric' });
+	private dateFormatter = new Lazy(() => safeIntl.DateTimeFormat(language, { year: 'numeric', month: 'long', day: 'numeric' }));
 
 	constructor(
 		@IStatusbarService private readonly statusbarService: IStatusbarService,
 		@IChatQuotasService private readonly chatQuotasService: IChatQuotasService,
 		@IChatEntitlementsService private readonly chatEntitlementsService: IChatEntitlementsService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
-		@IWorkbenchAssignmentService private readonly assignmentService: IWorkbenchAssignmentService,
-		@IProductService private readonly productService: IProductService,
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICommandService private readonly commandService: ICommandService
@@ -56,21 +62,21 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 	}
 
 	private async create(): Promise<void> {
-		let enabled = false;
-		if (this.productService.quality === 'stable') {
-			enabled = (await this.treatment) === true;
+		if (this.configurationService.getValue<boolean>('chat.experimental.statusIndicator.enabled') === true) {
+			this.entry ||= this.statusbarService.addEntry(this.getEntryProps(), ChatStatusBarEntry.ID, StatusbarAlignment.RIGHT, Number.NEGATIVE_INFINITY /* the end of the right hand side */);
 		} else {
-			enabled = true;
+			this.entry?.dispose();
+			this.entry = undefined;
 		}
-
-		if (!enabled) {
-			return;
-		}
-
-		this.entry = this._register(this.statusbarService.addEntry(this.getEntryProps(), ChatStatusBarEntry.ID, StatusbarAlignment.RIGHT, Number.NEGATIVE_INFINITY /* the end of the right hand side */));
 	}
 
 	private registerListeners(): void {
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('chat.experimental.statusIndicator.enabled')) {
+				this.create();
+			}
+		}));
+
 		const contextKeysSet = new Set([
 			ChatContextKeys.Setup.limited.key,
 			ChatContextKeys.Setup.installed.key,
@@ -140,10 +146,11 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 				// Quota Indicator
 				const { chatTotal, chatRemaining, completionsTotal, completionsRemaining, quotaResetDate } = this.chatQuotasService.quotas;
 
-				container.appendChild($('div', undefined, localize('limitTitle', "You are currently using Copilot Free:")));
+				container.appendChild($('div', undefined, localize('limitTitle', "You are using Copilot Free")));
+				container.appendChild($('hr'));
 
-				const chatQuotaIndicator = this.createQuotaIndicator(container, chatTotal, chatRemaining, localize('chatsLabel', "Chats Used"));
-				const completionsQuotaIndicator = this.createQuotaIndicator(container, completionsTotal, completionsRemaining, localize('completionsLabel', "Completions Used"));
+				const chatQuotaIndicator = this.createQuotaIndicator(container, chatTotal, chatRemaining, localize('chatsLabel', "Chats Messages Remaining"));
+				const completionsQuotaIndicator = this.createQuotaIndicator(container, completionsTotal, completionsRemaining, localize('completionsLabel', "Code Completions Remaining"));
 
 				this.chatEntitlementsService.resolve(CancellationToken.None).then(() => {
 					const { chatTotal, chatRemaining, completionsTotal, completionsRemaining } = this.chatQuotasService.quotas;
@@ -152,14 +159,14 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 					completionsQuotaIndicator(completionsTotal, completionsRemaining);
 				});
 
-				container.appendChild($('div', undefined, localize('limitQuota', "Usage will reset on {0}.", this.dateFormatter.format(quotaResetDate))));
+				container.appendChild($('div.description', undefined, localize('limitQuota', "Limits will reset on {0}.", this.dateFormatter.value.format(quotaResetDate))));
 
 				// Settings
-				container.appendChild(document.createElement('hr'));
+				container.appendChild($('hr'));
 				this.createSettings(container, disposables);
 
 				// Shortcuts
-				container.appendChild(document.createElement('hr'));
+				container.appendChild($('hr'));
 				this.createShortcuts(container, disposables);
 
 				return container;
@@ -171,6 +178,11 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 		else {
 			tooltip = () => {
 				const container = $('div.chat-status-bar-entry-tooltip');
+
+				if (this.contextKeyService.getContextKeyValue<boolean>(ChatContextKeys.Setup.pro.key) === true) {
+					container.appendChild($('div', undefined, localize('proTitle', "You are using Copilot Pro")));
+					container.appendChild($('hr'));
+				}
 
 				// Settings
 				this.createSettings(container, disposables);
@@ -211,8 +223,9 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 
 		const update = (total: number | undefined, remaining: number | undefined) => {
 			if (typeof total === 'number' && typeof remaining === 'number') {
-				quotaText.textContent = localize('quotaDisplay', "{0} / {1}", total - remaining, total);
-				quotaBit.style.width = `${((total - remaining) / total) * 100}%`;
+				// TODO@bpasero: enable this label when we can track this better
+				//quotaText.textContent = localize('quotaDisplay', "{0} / {1}", remaining, total);
+				quotaBit.style.width = `${(remaining / total) * 100}%`;
 			}
 		};
 
@@ -280,5 +293,12 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 		}
 
 		return settings;
+	}
+
+	override dispose(): void {
+		super.dispose();
+
+		this.entry?.dispose();
+		this.entry = undefined;
 	}
 }
