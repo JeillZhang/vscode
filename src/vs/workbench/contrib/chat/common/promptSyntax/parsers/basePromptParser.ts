@@ -7,8 +7,6 @@ import { localize } from '../../../../../../nls.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { ChatPromptCodec } from '../codecs/chatPromptCodec.js';
 import { Emitter } from '../../../../../../base/common/event.js';
-import { assert } from '../../../../../../base/common/assert.js';
-import { IPromptFileReference, IResolveError } from './types.js';
 import { FileReference } from '../codecs/tokens/fileReference.js';
 import { ChatPromptDecoder } from '../codecs/chatPromptDecoder.js';
 import { IRange } from '../../../../../../editor/common/core/range.js';
@@ -16,8 +14,11 @@ import { assertDefined } from '../../../../../../base/common/types.js';
 import { IPromptContentsProvider } from '../contentProviders/types.js';
 import { DeferredPromise } from '../../../../../../base/common/async.js';
 import { ILogService } from '../../../../../../platform/log/common/log.js';
+import { PromptVariableWithData } from '../codecs/tokens/promptVariable.js';
 import { basename, extUri } from '../../../../../../base/common/resources.js';
+import { assert, assertNever } from '../../../../../../base/common/assert.js';
 import { VSBufferReadableStream } from '../../../../../../base/common/buffer.js';
+import { IPromptFileReference, IPromptReference, IResolveError } from './types.js';
 import { isPromptFile } from '../../../../../../platform/prompts/common/constants.js';
 import { ObservableDisposable } from '../../../../../../base/common/observableDisposable.js';
 import { FilePromptContentProvider } from '../contentProviders/filePromptContentsProvider.js';
@@ -225,8 +226,12 @@ export abstract class BasePromptParser<T extends IPromptContentsProvider> extend
 
 		// when some tokens received, process and store the references
 		this.stream.on('data', (token) => {
-			if (token instanceof FileReference) {
-				this.onReference(token, [...seenReferences]);
+			if (token instanceof PromptVariableWithData) {
+				try {
+					this.onReference(FileReference.from(token), [...seenReferences]);
+				} catch (error) {
+					// no-op
+				}
 			}
 
 			// note! the `isURL` is a simple check and needs to be improved to truly
@@ -345,7 +350,7 @@ export abstract class BasePromptParser<T extends IPromptContentsProvider> extend
 	/**
 	 * Get a list of immediate child references of the prompt.
 	 */
-	public get references(): readonly IPromptFileReference[] {
+	public get references(): readonly IPromptReference[] {
 		return [...this._references];
 	}
 
@@ -353,8 +358,8 @@ export abstract class BasePromptParser<T extends IPromptContentsProvider> extend
 	 * Get a list of all references of the prompt, including
 	 * all possible nested references its children may have.
 	 */
-	public get allReferences(): readonly IPromptFileReference[] {
-		const result: IPromptFileReference[] = [];
+	public get allReferences(): readonly IPromptReference[] {
+		const result: IPromptReference[] = [];
 
 		for (const reference of this.references) {
 			result.push(reference);
@@ -370,7 +375,7 @@ export abstract class BasePromptParser<T extends IPromptContentsProvider> extend
 	/**
 	 * Get list of all valid references.
 	 */
-	public get allValidReferences(): readonly IPromptFileReference[] {
+	public get allValidReferences(): readonly IPromptReference[] {
 		return this.allReferences
 			// filter out unresolved references
 			.filter((reference) => {
@@ -546,7 +551,7 @@ export abstract class BasePromptParser<T extends IPromptContentsProvider> extend
 
 /**
  * Prompt file reference object represents any file reference inside prompt
- * text contents. For instanve the file variable(`#file:/path/to/file.md`)
+ * text contents. For instance the file variable(`#file:/path/to/file.md`)
  * or a markdown link(`[#file:file.md](/path/to/file.md)`).
  */
 export class PromptFileReference extends BasePromptParser<FilePromptContentProvider> implements IPromptFileReference {
@@ -575,7 +580,7 @@ export class PromptFileReference extends BasePromptParser<FilePromptContentProvi
 	public get linkRange(): IRange | undefined {
 		// `#file:` references
 		if (this.token instanceof FileReference) {
-			return this.token.linkRange;
+			return this.token.dataRange;
 		}
 
 		// `markdown link` references
@@ -587,21 +592,36 @@ export class PromptFileReference extends BasePromptParser<FilePromptContentProvi
 	}
 
 	/**
+	 * Subtype of a file reference, - either a prompt `#file` variable,
+	 * or a `markdown link` reference (`[caption](/path/to/file.md)`).
+	 */
+	public get subtype(): 'prompt' | 'markdown' {
+		if (this.token instanceof FileReference) {
+			return 'prompt';
+		}
+
+		if (this.token instanceof MarkdownLink) {
+			return 'markdown';
+		}
+
+		assertNever(
+			this.token,
+			`Unknown token type '${this.token}'.`,
+		);
+	}
+
+	/**
 	 * Returns a string representation of this object.
 	 */
 	public override toString() {
-		const prefix = (this.token instanceof FileReference)
-			? FileReference.TOKEN_START
-			: 'md-link:';
-
-		return `${prefix}${this.uri.path}`;
+		return `prompt-reference/${this.token}`;
 	}
 
 	/**
 	 * @inheritdoc
 	 */
 	protected override getErrorMessage(error: ParseError): string {
-		// if failed to open a file, return approprivate message and the file path
+		// if failed to open a file, return appropriate message and the file path
 		if (error instanceof OpenFailed) {
 			return `${errorMessages.fileOpenFailed} '${error.uri.path}'.`;
 		}
@@ -611,7 +631,7 @@ export class PromptFileReference extends BasePromptParser<FilePromptContentProvi
 }
 
 /**
- * A tiny utility object that helps us to track existance
+ * A tiny utility object that helps us to track existence
  * of at least one parse result from the content provider.
  */
 class FirstParseResult extends DeferredPromise<void> {
