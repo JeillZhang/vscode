@@ -297,10 +297,10 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 	private _onDidChangeCurrentChatMode = this._register(new Emitter<void>());
 	readonly onDidChangeCurrentChatMode = this._onDidChangeCurrentChatMode.event;
 
-	private _currentMode: ChatMode = ChatMode.Chat;
+	private _currentMode: ChatMode = ChatMode.Ask;
 	public get currentMode(): ChatMode {
 		if (this.location === ChatAgentLocation.Panel && !this.chatService.unifiedViewEnabled) {
-			return ChatMode.Chat;
+			return ChatMode.Ask;
 		}
 
 		return this._currentMode === ChatMode.Agent && !this.agentService.hasToolsAgent ?
@@ -1449,6 +1449,7 @@ class ModelPickerActionViewItem extends DropdownMenuActionViewItemWithKeybinding
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IChatEntitlementService chatEntitlementService: IChatEntitlementService,
 		@ICommandService commandService: ICommandService,
+		@IMenuService menuService: IMenuService,
 	) {
 		const modelActionsProvider: IActionProvider = {
 			getActions: () => {
@@ -1470,11 +1471,17 @@ class ModelPickerActionViewItem extends DropdownMenuActionViewItemWithKeybinding
 
 				const models: ILanguageModelChatMetadataAndIdentifier[] = this.delegate.getModels();
 				const actions = models.map(entry => setLanguageModelAction(entry));
-				if (chatEntitlementService.entitlement === ChatEntitlement.Limited) {
+
+				// Add menu contributions from extensions
+				const menuActions = menuService.getMenuActions(MenuId.ChatModelPicker, contextKeyService);
+				const menuContributions = getFlatActionBarActions(menuActions);
+				if (menuContributions.length > 0 || chatEntitlementService.entitlement === ChatEntitlement.Limited) {
 					actions.push(new Separator());
+				}
+				actions.push(...menuContributions);
+				if (chatEntitlementService.entitlement === ChatEntitlement.Limited) {
 					actions.push(toAction({ id: 'moreModels', label: localize('chat.moreModels', "Add More Models..."), run: () => commandService.executeCommand('workbench.action.chat.upgradePlan', 'chat-models') }));
 				}
-
 				return actions;
 			}
 		};
@@ -1537,11 +1544,11 @@ class ToggleChatModeActionViewItem extends DropdownMenuActionViewItemWithKeybind
 		const actionProvider: IActionProvider = {
 			getActions: () => {
 				const agentStateActions = [
-					makeAction(ChatMode.Agent),
 					makeAction(ChatMode.Edit),
+					makeAction(ChatMode.Agent),
 				];
 				if (chatService.unifiedViewEnabled) {
-					agentStateActions.unshift(makeAction(ChatMode.Chat));
+					agentStateActions.unshift(makeAction(ChatMode.Ask));
 				}
 
 				return agentStateActions;
@@ -1558,8 +1565,8 @@ class ToggleChatModeActionViewItem extends DropdownMenuActionViewItemWithKeybind
 				return localize('chat.agentMode', "Agent");
 			case ChatMode.Edit:
 				return localize('chat.normalMode', "Edit");
-			case ChatMode.Chat:
-				return localize('chat.chatMode', "Chat");
+			case ChatMode.Ask:
+				return localize('chat.askMode', "Ask");
 		}
 	}
 
