@@ -12,6 +12,7 @@ import { LineRange } from '../../../../../../editor/common/core/lineRange.js';
 import { Range } from '../../../../../../editor/common/core/range.js';
 import { nullDocumentDiff } from '../../../../../../editor/common/diff/documentDiffProvider.js';
 import { localize } from '../../../../../../nls.js';
+import { AccessibilitySignal, IAccessibilitySignalService } from '../../../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
 import { MenuId } from '../../../../../../platform/actions/common/actions.js';
 import { IInstantiationService } from '../../../../../../platform/instantiation/common/instantiation.js';
 import { IEditorPane, IResourceDiffEditorInput } from '../../../../../common/editor.js';
@@ -103,6 +104,7 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 		@IEditorService private readonly _editorService: IEditorService,
 		@IChatAgentService private readonly _chatAgentService: IChatAgentService,
 		@INotebookEditorService notebookEditorService: INotebookEditorService,
+		@IAccessibilitySignalService accessibilitySignalService: IAccessibilitySignalService,
 	) {
 		super();
 
@@ -157,6 +159,9 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 
 		// Build cell integrations (responsible for navigating changes within a cell and decorating cell text changes)
 		this._register(autorun(r => {
+			if (this.notebookEditor.textModel !== this.notebookModel) {
+				return;
+			}
 			const sortedCellChanges = sortCellChanges(cellChanges.read(r));
 
 			const changes = sortedCellChanges.filter(c => c.type !== 'delete');
@@ -264,6 +269,7 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 							if (entry) {
 								return entry.keep(entry.diff.get().changes[0]);
 							}
+							accessibilitySignalService.playSignal(AccessibilitySignal.editsKept, { allowManyInParallel: true });
 							return Promise.resolve(true);
 						},
 						reject() {
@@ -271,6 +277,7 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 							if (entry) {
 								return entry.undo(entry.diff.get().changes[0]);
 							}
+							accessibilitySignalService.playSignal(AccessibilitySignal.editsUndone, { allowManyInParallel: true });
 							return Promise.resolve(true);
 						},
 					} satisfies IModifiedFileEntryChangeHunk;
@@ -285,10 +292,10 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 
 		const cellsAreVisible = onDidChangeVisibleRanges.map(v => v.length > 0);
 		this._register(autorun(r => {
-			if (!cellsAreVisible.read(r)) {
+			if (this.notebookEditor.textModel !== this.notebookModel || !cellsAreVisible.read(r)) {
 				return;
 			}
-			// We can have inserted cells that have been accepted, in those cases we do not wany any decorators on them.
+			// We can have inserted cells that have been accepted, in those cases we do not want any decorators on them.
 			const changes = debouncedObservable(cellChanges, 10).read(r).filter(c => c.type === 'insert' ? !c.diff.read(r).identical : true);
 			const decorators = debouncedObservable(this.insertDeleteDecorators, 10).read(r);
 			if (decorators) {
@@ -376,7 +383,7 @@ class ChatEditingNotebookEditorWidgetIntegration extends Disposable implements I
 	}
 
 	private async revealChangeInView(cell: ICellViewModel, lines: LineRange): Promise<void> {
-		await this.notebookEditor.focusNotebookCell(cell, 'editor', { focusEditorLine: lines.startLineNumber });
+		await this.notebookEditor.focusNotebookCell(cell, 'container', { focusEditorLine: lines.startLineNumber });
 		await this.notebookEditor.revealRangeInCenterAsync(cell, new Range(lines.startLineNumber, 0, lines.endLineNumberExclusive, 0));
 	}
 
