@@ -631,9 +631,10 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 
 				await context.update({ hidden: false });
 
+				showCopilotView(viewsService, layoutService);
+
 				const setupFromDialog = configurationService.getValue('chat.experimental.setupFromDialog');
 				if (!setupFromDialog) {
-					showCopilotView(viewsService, layoutService);
 					ensureSideBarChatViewSize(viewDescriptorService, layoutService, viewsService);
 				}
 
@@ -738,11 +739,8 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 
 			override async run(accessor: ServicesAccessor, from?: string): Promise<void> {
 				const openerService = accessor.get(IOpenerService);
-				const telemetryService = accessor.get(ITelemetryService);
 				const hostService = accessor.get(IHostService);
 				const commandService = accessor.get(ICommandService);
-
-				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: this.desc.id, from: from ?? 'chat' });
 
 				openerService.open(URI.parse(defaultChat.upgradePlanUrl));
 
