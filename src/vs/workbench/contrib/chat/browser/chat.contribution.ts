@@ -212,11 +212,15 @@ configurationRegistry.registerConfiguration({
 		},
 		'chat.tools.autoApprove': {
 			default: false,
-			description: nls.localize('chat.tools.autoApprove', "Controls whether tool use should be automatically approved ('YOLO mode'). Can be set to `true`, or an array of tool names to automatically approve."),
-			oneOf: [
-				{ type: 'boolean' },
-				{ type: 'array', items: { type: 'string' } }
-			],
+			description: nls.localize('chat.tools.autoApprove', "Controls whether tool use should be automatically approved ('YOLO mode')."),
+			type: 'boolean',
+			tags: ['experimental'],
+			policy: {
+				name: 'ChatToolsAutoApprove',
+				minimumVersion: '1.99',
+				previewFeature: true,
+				defaultValue: false
+			}
 		},
 		[mcpEnabledSection]: {
 			type: 'boolean',
@@ -255,6 +259,7 @@ configurationRegistry.registerConfiguration({
 			type: 'boolean',
 			description: nls.localize('chat.edits2Enabled', "Enable the new Edits mode that is based on tool-calling. When this is enabled, models that don't support tool-calling are unavailable for Edits mode."),
 			default: true,
+			tags: ['onExp'],
 		},
 		[mcpDiscoverySection]: {
 			oneOf: [

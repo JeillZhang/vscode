@@ -53,7 +53,6 @@ export class LanguageModelToolsService extends Disposable implements ILanguageMo
 	private _tools = new Map<string, IToolEntry>();
 	private _toolContextKeys = new Set<string>();
 	private readonly _ctxToolsCount: IContextKey<number>;
-	private readonly _ctxPickableToolsCount: IContextKey<number>;
 
 	private _callsByRequestId = new Map<string, IDisposable[]>();
 
@@ -85,7 +84,6 @@ export class LanguageModelToolsService extends Disposable implements ILanguageMo
 		}));
 
 		this._ctxToolsCount = ChatContextKeys.Tools.toolsCount.bindTo(_contextKeyService);
-		this._ctxPickableToolsCount = ChatContextKeys.Tools.pickableToolsCount.bindTo(_contextKeyService);
 	}
 
 	registerToolData(toolData: IToolData): IDisposable {
@@ -95,7 +93,6 @@ export class LanguageModelToolsService extends Disposable implements ILanguageMo
 
 		this._tools.set(toolData.id, { data: toolData });
 		this._ctxToolsCount.set(this._tools.size);
-		this._ctxPickableToolsCount.set(Iterable.reduce(this._tools.values(), (pre, cur) => pre + (cur.data.supportsToolPicker ? 1 : 0), 0));
 		this._onDidChangeToolsScheduler.schedule();
 
 		toolData.when?.keys().forEach(key => this._toolContextKeys.add(key));
@@ -112,7 +109,6 @@ export class LanguageModelToolsService extends Disposable implements ILanguageMo
 			store?.dispose();
 			this._tools.delete(toolData.id);
 			this._ctxToolsCount.set(this._tools.size);
-			this._ctxPickableToolsCount.set(Iterable.reduce(this._tools.values(), (pre, cur) => pre + (cur.data.supportsToolPicker ? 1 : 0), 0));
 			this._refreshAllToolContextKeys();
 			this._onDidChangeToolsScheduler.schedule();
 		});
@@ -375,7 +371,7 @@ export class LanguageModelToolsService extends Disposable implements ILanguageMo
 			return true;
 		}
 
-		const config = this._configurationService.inspect<boolean | string[]>('chat.tools.autoApprove');
+		const config = this._configurationService.inspect<boolean | Record<string, boolean>>('chat.tools.autoApprove');
 
 		// If we know the tool runs at a global level, only consider the global config.
 		// If we know the tool runs at a workspace level, use those specific settings when appropriate.
@@ -387,7 +383,7 @@ export class LanguageModelToolsService extends Disposable implements ILanguageMo
 			}
 		}
 
-		return value === true || (Array.isArray(value) && value.includes(toolId));
+		return value === true || (typeof value === 'object' && value.hasOwnProperty(toolId) && value[toolId] === true);
 	}
 
 	private cleanupCallDisposables(requestId: string, store: DisposableStore): void {
