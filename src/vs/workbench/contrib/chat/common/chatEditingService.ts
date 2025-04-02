@@ -165,7 +165,7 @@ export interface IModifiedFileEntryEditorIntegration extends IDisposable {
 	/**
 	 * Reveal the first (`true`) or last (`false`) change
 	 */
-	reveal(firstOrLast: boolean): void;
+	reveal(firstOrLast: boolean, preserveFocus?: boolean): void;
 
 	/**
 	 * Go to next change and increate `currentIndex`
@@ -188,12 +188,12 @@ export interface IModifiedFileEntryEditorIntegration extends IDisposable {
 	 * Accept the change given or the nearest
 	 * @param change An opaque change object
 	 */
-	acceptNearestChange(change: IModifiedFileEntryChangeHunk): void;
+	acceptNearestChange(change: IModifiedFileEntryChangeHunk): Promise<void>;
 
 	/**
 	 * @see `acceptNearestChange`
 	 */
-	rejectNearestChange(change: IModifiedFileEntryChangeHunk): void;
+	rejectNearestChange(change: IModifiedFileEntryChangeHunk): Promise<void>;
 
 	/**
 	 * Toggle between diff-editor and normal editor
