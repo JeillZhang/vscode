@@ -5,6 +5,7 @@
 
 import { localize } from '../../../../../../../nls.js';
 import { PromptToolsMetadata } from './metadata/tools.js';
+import { PromptDescriptionMetadata } from './metadata/description.js';
 import { Disposable } from '../../../../../../../base/common/lifecycle.js';
 import { Text } from '../../../../../../../editor/common/codecs/baseToken.js';
 import { PromptMetadataError, PromptMetadataWarning, TDiagnostic } from './diagnostics.js';
@@ -14,13 +15,18 @@ import { FrontMatterRecord } from '../../../../../../../editor/common/codecs/fro
 import { FrontMatterDecoder, TFrontMatterToken } from '../../../../../../../editor/common/codecs/frontMatterCodec/frontMatterDecoder.js';
 
 /**
- * Metadata associated with the prompt header.
+ * Metadata defined in the prompt header.
  */
-interface IHeaderMetadata {
+export interface IHeaderMetadata {
 	/**
-	 * Metadata for `tools` record in the header.
+	 * Tools metadata in the prompt header.
 	 */
 	tools?: PromptToolsMetadata;
+
+	/**
+	 * Description metadata in the prompt header.
+	 */
+	description?: PromptDescriptionMetadata;
 }
 
 /**
@@ -33,11 +39,11 @@ export class PromptHeader extends Disposable {
 	private readonly stream: FrontMatterDecoder;
 
 	/**
-	 * Metadata records associated with the header.
+	 * Metadata records.
 	 */
 	private readonly meta: IHeaderMetadata;
 	/**
-	 * Metadata records associated with the header.
+	 * Metadata records.
 	 */
 	public get metadata(): Readonly<IHeaderMetadata> {
 		return this.meta;
@@ -136,6 +142,18 @@ export class PromptHeader extends Disposable {
 			this.meta.tools = toolsMetadata;
 			this.recordNames.add(recordName);
 
+			return;
+		}
+
+		// if the record might be a "description" metadata
+		// add it to the list of parsed metadata records
+		if (PromptDescriptionMetadata.isDescriptionRecord(token)) {
+			const descriptionMetadata = new PromptDescriptionMetadata(token);
+			const { diagnostics } = descriptionMetadata;
+
+			this.issues.push(...diagnostics);
+			this.meta.description = descriptionMetadata;
+			this.recordNames.add(recordName);
 			return;
 		}
 
