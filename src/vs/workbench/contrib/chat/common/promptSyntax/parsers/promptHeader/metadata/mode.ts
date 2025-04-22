@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { PromptMetadataRecord } from './record.js';
+import { ChatMode } from '../../../../constants.js';
 import { localize } from '../../../../../../../../nls.js';
 import { assert } from '../../../../../../../../base/common/assert.js';
 import { PromptMetadataDiagnostic, PromptMetadataError } from '../diagnostics.js';
@@ -12,12 +13,21 @@ import { FrontMatterRecord, FrontMatterString, FrontMatterToken } from '../../..
 /**
  * Name of the metadata record in the prompt header.
  */
-const RECORD_NAME = 'description';
+const RECORD_NAME = 'mode';
 
 /**
- * Prompt `description` metadata record inside the prompt header.
+ * Valid chat mode values.
  */
-export class PromptDescriptionMetadata extends PromptMetadataRecord {
+const VALID_MODES = Object.freeze([
+	ChatMode.Ask,
+	ChatMode.Edit,
+	ChatMode.Agent,
+]);
+
+/**
+ * Prompt `mode` metadata record inside the prompt header.
+ */
+export class PromptModeMetadata extends PromptMetadataRecord {
 	public override get recordName(): string {
 		return RECORD_NAME;
 	}
@@ -36,21 +46,14 @@ export class PromptDescriptionMetadata extends PromptMetadataRecord {
 	}
 
 	/**
-	 * Value token reference of the record.
+	 * Private field for tracking the chat mode value.
 	 */
-	private valueToken: FrontMatterString | undefined;
-
+	private value: ChatMode | undefined;
 	/**
-	 * Clean text value of the record.
+	 * Chat mode value of the metadata record.
 	 */
-	public get text(): string | null {
-		const { valueToken } = this;
-
-		if (valueToken === undefined) {
-			return null;
-		}
-
-		return valueToken.cleanText;
+	public get chatMode(): ChatMode | undefined {
+		return this.value;
 	}
 
 	constructor(
@@ -58,8 +61,8 @@ export class PromptDescriptionMetadata extends PromptMetadataRecord {
 	) {
 		// sanity check on the name of the record
 		assert(
-			PromptDescriptionMetadata.isDescriptionRecord(recordToken),
-			`Record token must be 'description', got '${recordToken.nameToken.text}'.`,
+			PromptModeMetadata.isModeRecord(recordToken),
+			`Record token must be 'mode', got '${recordToken.nameToken.text}'.`,
 		);
 
 		super(recordToken.range);
@@ -81,7 +84,7 @@ export class PromptDescriptionMetadata extends PromptMetadataRecord {
 				new PromptMetadataError(
 					valueToken.range,
 					localize(
-						'prompt.header.metadata.description.diagnostics.invalid-value-type',
+						'prompt.header.metadata.mode.diagnostics.invalid-value-type',
 						"Value of the '{0}' metadata must be '{1}', got '{2}'.",
 						RECORD_NAME,
 						'string',
@@ -93,14 +96,39 @@ export class PromptDescriptionMetadata extends PromptMetadataRecord {
 			return;
 		}
 
-		this.valueToken = valueToken;
+		const { cleanText } = valueToken;
+
+		// validate that text value is one of the valid modes
+		const validModes: string[] = [...VALID_MODES];
+		const index = validModes.indexOf(cleanText);
+		if (index !== -1) {
+			this.value = VALID_MODES[index];
+			return;
+		}
+
+		// if not valid mode value, add an appropriate diagnostic
+		this.issues.push(
+			new PromptMetadataError(
+				valueToken.range,
+				localize(
+					'prompt.header.metadata.mode.diagnostics.invalid-value',
+					"Value of the '{0}' metadata must be one of ({1}), got '{2}'.",
+					RECORD_NAME,
+					VALID_MODES
+						.map((modeName) => {
+							return `'${modeName}'`;
+						}).join(', '),
+					cleanText,
+				),
+			),
+		);
 	}
 
 	/**
 	 * Check if a provided front matter token is a metadata record
-	 * with name equal to `description`.
+	 * with name equal to `mode`.
 	 */
-	public static isDescriptionRecord(
+	public static isModeRecord(
 		token: FrontMatterToken,
 	): boolean {
 		if ((token instanceof FrontMatterRecord) === false) {
