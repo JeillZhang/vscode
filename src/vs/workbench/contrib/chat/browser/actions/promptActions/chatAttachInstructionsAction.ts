@@ -98,7 +98,6 @@ class AttachInstructionsAction extends Action2 {
 			);
 
 			widget.focusInput();
-
 			return;
 		}
 
@@ -109,15 +108,12 @@ class AttachInstructionsAction extends Action2 {
 			'Select instructions files to attach',
 		);
 
-		const instructions = await pickers.selectInstructionsFiles({ promptFiles, placeholder });
-
-		if (instructions !== undefined) {
-			const widget = await attachInstructionsFiles(
-				instructions,
-				attachOptions,
-			);
-			widget.focusInput();
-		}
+		await pickers.selectInstructionsFiles({
+			promptFiles,
+			resource,
+			placeholder,
+			widget: options.widget,
+		});
 	}
 }
 
