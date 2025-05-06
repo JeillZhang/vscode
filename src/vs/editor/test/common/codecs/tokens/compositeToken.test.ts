@@ -27,7 +27,11 @@ suite('CompositeToken', () => {
 		}
 
 		public override toString(): string {
-			throw new Error('Method not implemented.');
+			const tokenStrings = this.tokens.map((token) => {
+				return token.toString();
+			});
+
+			return `CompositeToken:\n${tokenStrings.join('\n')})`;
 		}
 	}
 
@@ -224,12 +228,12 @@ suite('CompositeToken', () => {
 				// ensure there is at least one composite token
 				const lastToken = tokens[tokens.length - 1];
 				const compositeToken1 = new TestToken(randomTokens(
-					randomInt(5, 2),
+					randomInt(3, 1),
 					lastToken.range.endLineNumber,
 					lastToken.range.endColumn,
 				));
 				const compositeToken2 = new TestToken(randomTokens(
-					randomInt(5, 2),
+					randomInt(6, 4),
 					lastToken.range.endLineNumber,
 					lastToken.range.endColumn,
 				));
@@ -253,7 +257,6 @@ suite('CompositeToken', () => {
 		});
 	});
 });
-
 
 /**
  * Token type for the {@link cloneTokens} and {@link randomTokens} functions.
