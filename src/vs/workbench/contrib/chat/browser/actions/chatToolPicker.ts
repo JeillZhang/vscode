@@ -164,7 +164,7 @@ export async function showToolsPicker(
 			const key = ToolDataSource.toKey(toolSetOrTool.source);
 			bucket = toolBuckets.get(key) ?? {
 				type: 'item',
-				label: toolSetOrTool.source.label,
+				label: localize('ext', 'Extension: {0}', toolSetOrTool.source.label),
 				ordinal: BucketOrdinal.Extension,
 				picked: false,
 				alwaysShow: true,
@@ -290,7 +290,19 @@ export async function showToolsPicker(
 				}
 			}
 
-			onUpdate?.(result);
+			if (onUpdate) {
+				let didChange = toolsEntries.size !== result.size;
+				for (const [key, value] of toolsEntries) {
+					if (didChange) {
+						break;
+					}
+					didChange = result.get(key) !== value;
+				}
+
+				if (didChange) {
+					onUpdate(result);
+				}
+			}
 
 		} finally {
 			ignoreEvent = false;
