@@ -23,6 +23,9 @@ import { IKeyMods, IQuickInputButton, IQuickInputService, IQuickPick, IQuickPick
 import { askForPromptFileName } from '../../../../promptSyntax/contributions/createPromptCommand/dialogs/askForPromptName.js';
 import { IInstantiationService } from '../../../../../../../../platform/instantiation/common/instantiation.js';
 import { CancellationToken } from '../../../../../../../../base/common/cancellation.js';
+import { askForPromptSourceFolder } from '../../../../promptSyntax/contributions/createPromptCommand/dialogs/askForPromptSourceFolder.js';
+import { UILabelProvider } from '../../../../../../../../base/common/keybindingLabels.js';
+import { OS } from '../../../../../../../../base/common/platform.js';
 
 /**
  * Options for the {@link askToSelectInstructions} function.
@@ -47,6 +50,7 @@ export interface ISelectOptions {
 	readonly optionEdit?: boolean;
 	readonly optionDelete?: boolean;
 	readonly optionRename?: boolean;
+	readonly optionCopy?: boolean;
 }
 
 export interface ISelectPromptResult {
@@ -151,7 +155,15 @@ const DELETE_BUTTON: IQuickInputButton = Object.freeze({
  */
 const RENAME_BUTTON: IQuickInputButton = Object.freeze({
 	tooltip: localize('rename', "Rename"),
-	iconClass: ThemeIcon.asClassName(Codicon.pencil),
+	iconClass: ThemeIcon.asClassName(Codicon.replace),
+});
+
+/**
+ * Button that copies a prompt file.
+ */
+const COPY_BUTTON: IQuickInputButton = Object.freeze({
+	tooltip: localize('copy', "Copy or Move (press {0})", UILabelProvider.modifierLabels[OS].ctrlKey),
+	iconClass: ThemeIcon.asClassName(Codicon.copy),
 });
 
 export class PromptFilePickers {
@@ -176,7 +188,7 @@ export class PromptFilePickers {
 	async selectPromptFile(options: ISelectOptions): Promise<ISelectPromptResult | undefined> {
 		const quickPick = this._quickInputService.createQuickPick<IPromptPickerQuickPickItem>();
 		quickPick.busy = true;
-		quickPick.placeholder = localize('searching', 'Searching for files...');
+		quickPick.placeholder = localize('searching', 'Searching file system...');
 		try {
 			const fileOptions = await this._createPromptPickItems(options);
 			const activeItem = options.resource && fileOptions.find(f => extUri.isEqual(f.value, options.resource));
@@ -249,6 +261,9 @@ export class PromptFilePickers {
 		const buttons: IQuickInputButton[] = [];
 		if (options.optionEdit !== false) {
 			buttons.push(EDIT_BUTTON);
+		}
+		if (options.optionCopy !== false) {
+			buttons.push(COPY_BUTTON);
 		}
 		if (options.optionRename !== false) {
 			buttons.push(RENAME_BUTTON);
@@ -343,6 +358,17 @@ export class PromptFilePickers {
 		};
 	}
 
+	private async keepQuickPickOpen(quickPick: IQuickPick<IPromptPickerQuickPickItem>, work: () => Promise<void>): Promise<void> {
+		const previousIgnoreFocusOut = quickPick.ignoreFocusOut;
+		quickPick.ignoreFocusOut = true;
+		try {
+			await work();
+		} finally {
+			quickPick.ignoreFocusOut = previousIgnoreFocusOut;
+		}
+
+	}
+
 	private async _handleButtonClick(quickPick: IQuickPick<IPromptPickerQuickPickItem>, context: IQuickPickItemButtonEvent<IPromptPickerQuickPickItem>, options: ISelectOptions): Promise<void> {
 		const { item, button } = context;
 		const { value, } = item;
@@ -353,20 +379,38 @@ export class PromptFilePickers {
 			return;
 		}
 
+		// `copy` button was pressed, open the prompt file in editor
+		if (button === COPY_BUTTON) {
+			const currentFolder = dirname(value);
+			const isMove = quickPick.keyMods.ctrlCmd;
+			const newFolder = await this._instaService.invokeFunction(askForPromptSourceFolder, options.type, currentFolder, isMove);
+			if (!newFolder) {
+				return;
+			}
+			const newName = await this._instaService.invokeFunction(askForPromptFileName, options.type, newFolder.uri, item.label);
+			if (!newName) {
+				return;
+			}
+			const newFile = joinPath(newFolder.uri, newName);
+			if (isMove) {
+				await this._fileService.move(value, newFile);
+			} else {
+				await this._fileService.copy(value, newFile);
+			}
+
+			await this._openerService.open(newFile);
+
+			return;
+		}
+
 		// `rename` button was pressed, open a rename dialog
 		if (button === RENAME_BUTTON) {
-			// don't close the main prompt selection dialog by the confirmation dialog
-			const previousIgnoreFocusOut = quickPick.ignoreFocusOut;
-			quickPick.ignoreFocusOut = true;
-			try {
-				const currentFolder = dirname(value);
-				const newName = await this._instaService.invokeFunction(askForPromptFileName, options.type, currentFolder);
-				if (newName) {
-					await this._fileService.move(value, joinPath(currentFolder, newName));
-				}
-			} finally {
-				quickPick.ignoreFocusOut = previousIgnoreFocusOut;
-				quickPick.items = await this._createPromptPickItems(options);
+			const currentFolder = dirname(value);
+			const newName = await this._instaService.invokeFunction(askForPromptFileName, options.type, currentFolder, item.label);
+			if (newName) {
+				const newFile = joinPath(currentFolder, newName);
+				await this._fileService.move(value, newFile);
+				await this._openerService.open(newFile);
 			}
 			return;
 		}
@@ -389,56 +433,52 @@ export class PromptFilePickers {
 			);
 
 			// don't close the main prompt selection dialog by the confirmation dialog
-			const previousIgnoreFocusOut = quickPick.ignoreFocusOut;
-			quickPick.ignoreFocusOut = true;
+			await this.keepQuickPickOpen(quickPick, async () => {
 
-			const filename = getCleanPromptName(value);
-			const { confirmed } = await this._dialogService.confirm({
-				message: localize(
-					'commands.prompts.use.select-dialog.delete-prompt.confirm.message',
-					"Are you sure you want to delete '{0}'?",
-					filename,
-				),
-			});
+				const filename = getCleanPromptName(value);
+				const { confirmed } = await this._dialogService.confirm({
+					message: localize(
+						'commands.prompts.use.select-dialog.delete-prompt.confirm.message',
+						"Are you sure you want to delete '{0}'?",
+						filename,
+					),
+				});
 
-			// restore the previous value of the `ignoreFocusOut` property
-			quickPick.ignoreFocusOut = previousIgnoreFocusOut;
-
-			// if prompt deletion was not confirmed, nothing to do
-			if (!confirmed) {
-				return;
-			}
-
-			// prompt deletion was confirmed so delete the prompt file
-			await this._fileService.del(value);
-
-			// remove the deleted prompt from the selection dialog list
-			let removedIndex = -1;
-			quickPick.items = quickPick.items.filter((option, index) => {
-				if (option === item) {
-					removedIndex = index;
-
-					return false;
+				// if prompt deletion was not confirmed, nothing to do
+				if (!confirmed) {
+					return;
 				}
 
-				return true;
+				// prompt deletion was confirmed so delete the prompt file
+				await this._fileService.del(value);
+
+				// remove the deleted prompt from the selection dialog list
+				let removedIndex = -1;
+				quickPick.items = quickPick.items.filter((option, index) => {
+					if (option === item) {
+						removedIndex = index;
+
+						return false;
+					}
+
+					return true;
+				});
+
+				// if the deleted item was active item, find a new item to set as active
+				if (activeItem && (activeItem === item)) {
+					assert(
+						removedIndex >= 0,
+						'Removed item index must be a valid index.',
+					);
+
+					// we set the previous item as new active, or the next item
+					// if removed prompt item was in the beginning of the list
+					const newActiveItemIndex = Math.max(removedIndex - 1, 0);
+					const newActiveItem: IPromptPickerQuickPickItem | undefined = quickPick.items[newActiveItemIndex];
+
+					quickPick.activeItems = newActiveItem ? [newActiveItem] : [];
+				}
 			});
-
-			// if the deleted item was active item, find a new item to set as active
-			if (activeItem && (activeItem === item)) {
-				assert(
-					removedIndex >= 0,
-					'Removed item index must be a valid index.',
-				);
-
-				// we set the previous item as new active, or the next item
-				// if removed prompt item was in the beginning of the list
-				const newActiveItemIndex = Math.max(removedIndex - 1, 0);
-				const newActiveItem: IPromptPickerQuickPickItem | undefined = quickPick.items[newActiveItemIndex];
-
-				quickPick.activeItems = newActiveItem ? [newActiveItem] : [];
-			}
-
 			return;
 		}
 
