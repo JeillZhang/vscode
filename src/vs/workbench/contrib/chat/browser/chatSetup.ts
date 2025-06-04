@@ -28,7 +28,7 @@ import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../plat
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { createWorkbenchDialogOptions } from '../../../../platform/dialogs/browser/dialog.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -192,7 +192,7 @@ class SetupAgent extends Disposable implements IChatAgentImplementation {
 		return { agent, disposable: disposables };
 	}
 
-	private static readonly SETUP_NEEDED_MESSAGE = new MarkdownString(localize('settingUpCopilotNeeded', "You need to set up Copilot to use Chat."));
+	private static readonly SETUP_NEEDED_MESSAGE = new MarkdownString(localize('settingUpCopilotNeeded', "You need to set up Copilot and be signed in to use Chat."));
 
 	private readonly _onUnresolvableError = this._register(new Emitter<void>());
 	readonly onUnresolvableError = this._onUnresolvableError.event;
@@ -593,7 +593,7 @@ class ChatSetup {
 		let instance = ChatSetup.instance;
 		if (!instance) {
 			instance = ChatSetup.instance = instantiationService.invokeFunction(accessor => {
-				return new ChatSetup(context, controller, instantiationService, accessor.get(ITelemetryService), accessor.get(IWorkbenchLayoutService), accessor.get(IKeybindingService), accessor.get(IChatEntitlementService), accessor.get(ILogService), accessor.get(IConfigurationService), accessor.get(IViewsService), accessor.get(IProductService), accessor.get(IOpenerService), accessor.get(IContextMenuService));
+				return new ChatSetup(context, controller, instantiationService, accessor.get(ITelemetryService), accessor.get(IWorkbenchLayoutService), accessor.get(IKeybindingService), accessor.get(IChatEntitlementService), accessor.get(ILogService), accessor.get(IConfigurationService), accessor.get(IViewsService), accessor.get(IProductService), accessor.get(IOpenerService), accessor.get(IContextMenuService), accessor.get(IContextKeyService));
 			});
 		}
 
@@ -617,7 +617,8 @@ class ChatSetup {
 		@IViewsService private readonly viewsService: IViewsService,
 		@IProductService private readonly productService: IProductService,
 		@IOpenerService private readonly openerService: IOpenerService,
-		@IContextMenuService private readonly contextMenuService: IContextMenuService
+		@IContextMenuService private readonly contextMenuService: IContextMenuService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService
 	) { }
 
 	skipDialog(): void {
@@ -639,6 +640,8 @@ class ChatSetup {
 	}
 
 	private async doRun(options?: { disableChatViewReveal?: boolean }): Promise<IChatSetupResult> {
+		ChatContextKeys.Setup.later.bindTo(this.contextKeyService).set(false);
+
 		const dialogSkipped = this.skipDialogOnce;
 		this.skipDialogOnce = false;
 
@@ -675,6 +678,7 @@ class ChatSetup {
 					this.openerService.open(URI.parse(defaultChat.signUpUrl));
 					return this.doRun(options); // open dialog again
 				case ChatSetupStrategy.Canceled:
+					ChatContextKeys.Setup.later.bindTo(this.contextKeyService).set(true);
 					this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedMaybeLater', installDuration: 0, signUpErrorCode: undefined });
 					break;
 			}
@@ -1438,6 +1442,8 @@ class ChatSetupController extends Disposable {
 				this.setStep(ChatSetupStep.SigningIn);
 				const result = await this.signIn(providerId);
 				if (!result.session) {
+					this.doInstall(); // still install the extension in the background to remind the user to sign-in eventually
+
 					this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedNotSignedIn', installDuration: watch.elapsed(), signUpErrorCode: undefined });
 					return undefined; // treat as cancelled because signing in already triggers an error dialog
 				}
@@ -1521,7 +1527,7 @@ class ChatSetupController extends Disposable {
 				}
 			}
 
-			await this.doInstall();
+			await this.doInstallWithRetry();
 		} catch (error) {
 			this.logService.error(`[chat setup] install: error ${error}`);
 			this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: isCancellationError(error) ? 'cancelled' : 'failedInstall', installDuration: watch.elapsed(), signUpErrorCode: undefined });
@@ -1539,16 +1545,10 @@ class ChatSetupController extends Disposable {
 		return true;
 	}
 
-	private async doInstall(): Promise<void> {
+	private async doInstallWithRetry(): Promise<void> {
 		let error: Error | undefined;
 		try {
-			await this.extensionsWorkbenchService.install(defaultChat.extensionId, {
-				enable: true,
-				isApplicationScoped: true, 	// install into all profiles
-				isMachineScoped: false,		// do not ask to sync
-				installEverywhere: true,	// install in local and remote
-				installPreReleaseVersion: this.productService.quality !== 'stable'
-			}, ChatViewId);
+			await this.doInstall();
 		} catch (e) {
 			this.logService.error(`[chat setup] install: error ${error}`);
 			error = e;
@@ -1564,12 +1564,22 @@ class ChatSetupController extends Disposable {
 				});
 
 				if (confirmed) {
-					return this.doInstall();
+					return this.doInstallWithRetry();
 				}
 			}
 
 			throw error;
 		}
+	}
+
+	private async doInstall(): Promise<void> {
+		await this.extensionsWorkbenchService.install(defaultChat.extensionId, {
+			enable: true,
+			isApplicationScoped: true, 	// install into all profiles
+			isMachineScoped: false,		// do not ask to sync
+			installEverywhere: true,	// install in local and remote
+			installPreReleaseVersion: this.productService.quality !== 'stable'
+		}, ChatViewId);
 	}
 
 	async setupWithProvider(options: { useEnterpriseProvider: boolean }): Promise<ChatSetupResultValue> {
