@@ -71,6 +71,7 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { IButton } from '../../../../base/browser/ui/button/button.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { ChatMode2 } from '../common/chatModes.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 
 const defaultChat = {
 	extensionId: product.defaultChatAgent?.extensionId ?? '',
@@ -206,6 +207,7 @@ class SetupAgent extends Disposable implements IChatAgentImplementation {
 		@ILogService private readonly logService: ILogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ITelemetryService private readonly telemetryService: ITelemetryService,
+		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService
 	) {
 		super();
 	}
@@ -296,7 +298,7 @@ class SetupAgent extends Disposable implements IChatAgentImplementation {
 
 			try {
 				const ready = await Promise.race([
-					timeout(20000).then(() => 'timedout'),
+					timeout(this.environmentService.remoteAuthority ? 60000 /* increase for remote scenarios */ : 20000).then(() => 'timedout'),
 					this.whenDefaultAgentFailed(chatService).then(() => 'error'),
 					Promise.allSettled([whenLanguageModelReady, whenAgentReady, whenToolsModelReady])
 				]);
@@ -767,31 +769,59 @@ class ChatSetup {
 								separator?.appendChild($('.buttons-separator-right'));
 							}
 						}],
-						supportAlternateProvider ? [localize('continueWithProvider', "Continue with {0}", defaultChat.alternativeProviderName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, undefined] : undefined,
-						[localize('continueWithProvider', "Continue with {0}", defaultChat.enterpriseProviderName), ChatSetupStrategy.SetupWithEnterpriseProvider, undefined]
+						supportAlternateProvider ? [localize('continueWith', "Continue with {0}", defaultChat.alternativeProviderName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, {
+							styleButton: button => {
+								button.element.classList.add('continue-button', 'alternate');
+							}
+						}] : undefined,
+						[localize('continueWith', "Continue with {0}", defaultChat.enterpriseProviderName), ChatSetupStrategy.SetupWithEnterpriseProvider, {
+							styleButton: button => {
+								button.element.classList.add('continue-button', 'default');
+							}
+						}]
 					]);
 					break;
 				default:
 					if (ChatEntitlementRequests.providerId(this.configurationService) === defaultChat.enterpriseProviderId) {
 						buttons = coalesce([
-							[localize('continueWithProvider', "Continue with {0}", defaultChat.enterpriseProviderName), ChatSetupStrategy.SetupWithEnterpriseProvider, undefined],
-							supportAlternateProvider ? [localize('continueWithProvider', "Continue with {0}", defaultChat.alternativeProviderName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, undefined] : undefined,
+							[localize('continueWith', "Continue with {0}", defaultChat.enterpriseProviderName), ChatSetupStrategy.SetupWithEnterpriseProvider, {
+								styleButton: button => {
+									button.element.classList.add('continue-button', 'default');
+								}
+							}],
+							supportAlternateProvider ? [localize('continueWith', "Continue with {0}", defaultChat.alternativeProviderName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, {
+								styleButton: button => {
+									button.element.classList.add('continue-button', 'alternate');
+								}
+							}] : undefined,
 							[variant !== 'account-create' ? localize('signInWithProvider', "Sign in with a {0} account", defaultChat.providerName) : localize('continueWithProvider', "Continue with {0}", defaultChat.providerName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, {
 								styleButton: button => {
 									if (variant !== 'account-create') {
 										button.element.classList.add('link-button');
+									} else {
+										button.element.classList.add('continue-button', 'default');
 									}
 								}
 							}]
 						]);
 					} else {
 						buttons = coalesce([
-							[localize('continueWithProvider', "Continue with {0}", defaultChat.providerName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, undefined],
-							supportAlternateProvider ? [localize('continueWithProvider', "Continue with {0}", defaultChat.alternativeProviderName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, undefined] : undefined,
+							[localize('continueWith', "Continue with {0}", defaultChat.providerName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, {
+								styleButton: button => {
+									button.element.classList.add('continue-button', 'default');
+								}
+							}],
+							supportAlternateProvider ? [localize('continueWith', "Continue with {0}", defaultChat.alternativeProviderName), ChatSetupStrategy.SetupWithoutEnterpriseProvider, {
+								styleButton: button => {
+									button.element.classList.add('continue-button', 'alternate');
+								}
+							}] : undefined,
 							[variant !== 'account-create' ? localize('signInWithProvider', "Sign in with a {0} account", defaultChat.enterpriseProviderName) : localize('continueWithProvider', "Continue with {0}", defaultChat.enterpriseProviderName), ChatSetupStrategy.SetupWithEnterpriseProvider, {
 								styleButton: button => {
 									if (variant !== 'account-create') {
 										button.element.classList.add('link-button');
+									} else {
+										button.element.classList.add('continue-button', 'default');
 									}
 								}
 							}]
