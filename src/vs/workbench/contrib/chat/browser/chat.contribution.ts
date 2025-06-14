@@ -96,7 +96,7 @@ import { ChatResponseAccessibleView } from './chatResponseAccessibleView.js';
 import { ChatSetupContribution } from './chatSetup.js';
 import { ChatStatusBarEntry } from './chatStatus.js';
 import { ChatVariablesService } from './chatVariables.js';
-import { ChatWidgetService } from './chatWidget.js';
+import { ChatWidget, ChatWidgetService } from './chatWidget.js';
 import { ChatCodeBlockContextProviderService } from './codeBlockContextProviderService.js';
 import { ChatImplicitContextContribution } from './contrib/chatImplicitContext.js';
 import './contrib/chatInputCompletions.js';
@@ -110,6 +110,7 @@ import product from '../../../../platform/product/common/product.js';
 import { ChatModeService, IChatModeService } from '../common/chatModes.js';
 import { ChatResponseResourceFileSystemProvider } from '../common/chatResponseResourceFileSystemProvider.js';
 import { runSaveToPromptAction, SAVE_TO_PROMPT_SLASH_COMMAND_NAME } from './promptSyntax/saveToPromptAction.js';
+import { ChatDynamicVariableModel } from './contrib/chatDynamicVariables.js';
 
 // Register configuration
 const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
@@ -235,6 +236,12 @@ configurationRegistry.registerConfiguration({
 		'chat.sendElementsToChat.attachImages': {
 			default: true,
 			markdownDescription: nls.localize('chat.sendElementsToChat.attachImages', "Controls whether a screenshot of the selected element will be added to the chat. {0} must be enabled.", '`#chat.sendElementsToChat.enabled#`'),
+			type: 'boolean',
+			tags: ['experimental']
+		},
+		'chat.undoRequests.restoreInput': {
+			default: true,
+			markdownDescription: nls.localize('chat.undoRequests.restoreInput', "Controls whether the input of the chat should be restored when an undo request is made. The input will be filled with the text of the request that was restored."),
 			type: 'boolean',
 			tags: ['experimental']
 		},
@@ -762,3 +769,5 @@ registerPromptFileContributions();
 
 registerWorkbenchContribution2(UserToolSetsContributions.ID, UserToolSetsContributions, WorkbenchPhase.Eventually);
 registerAction2(ConfigureToolSets);
+
+ChatWidget.CONTRIBS.push(ChatDynamicVariableModel);
