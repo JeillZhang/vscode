@@ -576,7 +576,7 @@ export function registerChatActions() {
 								const menuActions = getContextMenuActions(actions, 'navigation');
 								ckey.reset();
 
-								const buttons = menuActions.secondary.map(action => ({
+								const buttons = menuActions.primary.map(action => ({
 									id: action.id,
 									tooltip: action.tooltip,
 									iconClass: action.class || ThemeIcon.asClassName(Codicon.symbolClass),
@@ -788,7 +788,6 @@ export function registerChatActions() {
 							true
 						);
 						return;
-					} else if ((item as ICodingAgentPickerItem).uri !== undefined) {
 					} else if ((item as ICodingAgentPickerItem).uri !== undefined) {
 						// TODO: handle click
 						return;
