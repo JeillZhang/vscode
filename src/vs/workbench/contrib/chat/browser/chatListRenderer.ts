@@ -552,11 +552,12 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 		}
 
 		templateData.checkpointToolbar.context = element;
-		templateData.checkpointContainer.classList.toggle('hidden', isResponseVM(element) || !this.configService.getValue<boolean>(ChatConfiguration.CheckpointsEnabled));
+		const isLockedToCodingAgent = ChatContextKeys.lockedToCodingAgent.getValue(templateData.contextKeyService);
+		templateData.checkpointContainer.classList.toggle('hidden', isResponseVM(element) || !this.configService.getValue<boolean>(ChatConfiguration.CheckpointsEnabled) || isLockedToCodingAgent);
 
 		// Only show restore container when we have a checkpoint and not editing
 		const shouldShowRestore = this.viewModel?.model.checkpoint && !this.viewModel?.editing && (index === this.delegate.getListLength() - 1);
-		templateData.checkpointRestoreContainer.classList.toggle('hidden', !shouldShowRestore || !this.configService.getValue<boolean>(ChatConfiguration.CheckpointsEnabled));
+		templateData.checkpointRestoreContainer.classList.toggle('hidden', !shouldShowRestore || !this.configService.getValue<boolean>(ChatConfiguration.CheckpointsEnabled) || isLockedToCodingAgent);
 
 		const editing = element.id === this.viewModel?.editing?.id;
 		const isInput = this.configService.getValue<string>('chat.editRequests') === 'input';
@@ -696,27 +697,38 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 		if (element.model.response === element.model.entireResponse && element.errorDetails?.message && element.errorDetails.message !== canceledName) {
 			content.push({ kind: 'errorDetails', errorDetails: element.errorDetails, isLast: index === this.delegate.getListLength() - 1 });
 		}
-		if (this.shouldShowFileChangesSummary(element)) {
-			const fileChanges: IChatChangesSummary[] = [];
-			for (const part of element.model.entireResponse.value) {
-				if (part.kind === 'textEditGroup') {
-					fileChanges.push({
-						kind: 'changesSummary',
-						reference: part.uri,
-						sessionId: element.sessionId,
-						requestId: element.requestId,
-					});
-				}
-			}
-			if (fileChanges.length) {
-				content.push({ kind: 'changesSummary', fileChanges });
-			}
+		const fileChangesSummaryPart = this.getChatFileChangesSummaryPart(element);
+		if (fileChangesSummaryPart) {
+			content.push(fileChangesSummaryPart);
 		}
 
 		const diff = this.diff(templateData.renderedParts ?? [], content, element);
 		this.renderChatContentDiff(diff, content, element, index, templateData);
 
 		this.updateItemHeightOnRender(element, templateData);
+	}
+
+	private getChatFileChangesSummaryPart(element: IChatResponseViewModel): IChatChangesSummaryPart | undefined {
+		if (!this.shouldShowFileChangesSummary(element)) {
+			return undefined;
+		}
+		const consideredFiles: Set<string> = new Set();
+		const fileChanges: IChatChangesSummary[] = [];
+		for (const part of element.model.entireResponse.value) {
+			if (part.kind === 'textEditGroup' && !consideredFiles.has(part.uri.toString(true))) {
+				fileChanges.push({
+					kind: 'changesSummary',
+					reference: part.uri,
+					sessionId: element.sessionId,
+					requestId: element.requestId,
+				});
+				consideredFiles.add(part.uri.toString(true));
+			}
+		}
+		if (!fileChanges.length) {
+			return undefined;
+		}
+		return { kind: 'changesSummary', fileChanges };
 	}
 
 	private renderChatRequest(element: IChatRequestViewModel, index: number, templateData: IChatListItemTemplate) {
@@ -1019,21 +1031,9 @@ export class ChatListItemRenderer extends Disposable implements ITreeRenderer<Ch
 			const isPaused = element.model.isPaused.get();
 			partsToRender.push({ kind: 'working', isPaused, setPaused: p => element.model.setPaused(p) });
 		}
-		if (this.shouldShowFileChangesSummary(element)) {
-			const fileChanges: IChatChangesSummary[] = [];
-			for (const part of element.model.entireResponse.value) {
-				if (part.kind === 'textEditGroup') {
-					fileChanges.push({
-						kind: 'changesSummary',
-						reference: part.uri,
-						sessionId: element.sessionId,
-						requestId: element.requestId,
-					});
-				}
-			}
-			if (fileChanges.length > 0) {
-				partsToRender.push({ kind: 'changesSummary', fileChanges });
-			}
+		const fileChangesSummaryPart = this.getChatFileChangesSummaryPart(element);
+		if (fileChangesSummaryPart) {
+			partsToRender.push(fileChangesSummaryPart);
 		}
 
 		return { content: partsToRender, moreContentAvailable };
