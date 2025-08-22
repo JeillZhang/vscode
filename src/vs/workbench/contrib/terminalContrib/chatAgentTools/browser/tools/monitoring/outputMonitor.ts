@@ -16,11 +16,11 @@ import { IChatService } from '../../../../../chat/common/chatService.js';
 import { ILanguageModelsService, ChatMessageRole } from '../../../../../chat/common/languageModels.js';
 import { IToolInvocationContext } from '../../../../../chat/common/languageModelToolsService.js';
 import { ITaskService } from '../../../../../tasks/common/taskService.js';
-import { PollingConsts } from '../../bufferOutputPolling.js';
-import { IPollingResult, OutputMonitorState, IExecution, IRacePollingOrPromptResult, IConfirmationPrompt } from './types.js';
+import { IPollingResult, OutputMonitorState, IExecution, IRacePollingOrPromptResult, IConfirmationPrompt, PollingConsts } from './types.js';
 import { getTextResponseFromStream } from './utils.js';
 import { IChatWidgetService } from '../../../../../chat/browser/chat.js';
 import { ChatAgentLocation } from '../../../../../chat/common/constants.js';
+import { isObject, isString } from '../../../../../../../base/common/types.js';
 
 export interface IOutputMonitor extends Disposable {
 	readonly isIdle: boolean;
@@ -44,6 +44,11 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 	get state(): OutputMonitorState { return this._state; }
 
 	private _lastAutoReply: string | undefined;
+
+	// Telemetry counters
+	private _inputToolManualAcceptCount = 0;
+	private _inputToolManualRejectCount = 0;
+	private _inputToolManualChars = 0;
 
 	private readonly _onDidFinishCommand = this._register(new Emitter<void>());
 	readonly onDidFinishCommand = this._onDidFinishCommand.event;
@@ -230,14 +235,28 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		const selectedOption = await this._selectAndHandleOption(confirmationPrompt, token);
 		if (selectedOption) {
 			if (recursionDepth >= PollingConsts.MaxRecursionCount) {
-				return { state: OutputMonitorState.Timeout, modelOutputEvalResponse, output: buffer };
+				return {
+					state: OutputMonitorState.Timeout,
+					modelOutputEvalResponse,
+					output: buffer,
+					inputToolManualAcceptCount: this._inputToolManualAcceptCount,
+					inputToolManualRejectCount: this._inputToolManualRejectCount,
+					inputToolManualChars: this._inputToolManualChars,
+				};
 			}
 			const confirmed = await this._confirmRunInTerminal(selectedOption, execution);
 			if (confirmed) {
 				return this._pollForOutputAndIdle(execution, true, token, pollFn, recursionDepth + 1);
 			}
 		}
-		return { state: this._state, modelOutputEvalResponse, output: buffer, autoReplyCount: recursionDepth };
+		return {
+			state: this._state,
+			modelOutputEvalResponse,
+			output: buffer,
+			inputToolManualAcceptCount: this._inputToolManualAcceptCount,
+			inputToolManualRejectCount: this._inputToolManualRejectCount,
+			inputToolManualChars: this._inputToolManualChars,
+		};
 	}
 
 
@@ -247,7 +266,7 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 			return 'No models available';
 		}
 
-		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('github.copilot-chat'), [{ role: ChatMessageRole.User, content: [{ type: 'text', value: `Evaluate this terminal output to determine if there were errors or if the command ran successfully: ${buffer}.` }] }], {}, token);
+		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('core'), [{ role: ChatMessageRole.User, content: [{ type: 'text', value: `Evaluate this terminal output to determine if there were errors or if the command ran successfully: ${buffer}.` }] }], {}, token);
 
 		try {
 			const responseFromStream = getTextResponseFromStream(response);
@@ -291,7 +310,7 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 			Now, analyze this output:
 			${lastFiveLines}
 			`;
-		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('github.copilot-chat'), [
+		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('core'), [
 			{ role: ChatMessageRole.User, content: [{ type: 'text', value: promptText }] }
 		], {}, token);
 
@@ -299,9 +318,14 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		try {
 			const match = responseText.match(/\{[\s\S]*\}/);
 			if (match) {
-				const obj = JSON.parse(match[0]);
-				if (obj && obj satisfies IConfirmationPrompt) {
-					return obj;
+				const obj = JSON.parse(match[0]) as unknown;
+				if (
+					isObject(obj) &&
+					'prompt' in obj && isString(obj.prompt) &&
+					'options' in obj && Array.isArray(obj.options) &&
+					obj.options.every(isString)
+				) {
+					return { prompt: obj.prompt, options: obj.options };
 				}
 			}
 		} catch {
@@ -328,7 +352,7 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		const sanitizedPrompt = confirmationPrompt.prompt;
 		const sanitizedOptions = confirmationPrompt.options.map(opt => opt);
 		const promptText = `Given the following confirmation prompt and options from a terminal output, which option should be selected to proceed safely and correctly?\nPrompt: "${sanitizedPrompt}"\nOptions: ${JSON.stringify(sanitizedOptions)}\nRespond with only the option string.`;
-		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('github.copilot-chat'), [
+		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('core'), [
 			{ role: ChatMessageRole.User, content: [{ type: 'text', value: promptText }] }
 		], {}, token);
 
@@ -359,12 +383,17 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 							thePart.state = 'accepted';
 							thePart.hide();
 							thePart.dispose();
+							// Track manual acceptance
+							this._inputToolManualAcceptCount++;
+							this._inputToolManualChars += selectedOption.length;
 							resolve(true);
 						},
 						async () => {
 							thePart.state = 'rejected';
 							thePart.hide();
 							this._state = OutputMonitorState.Cancelled;
+							// Track manual rejection
+							this._inputToolManualRejectCount++;
 							resolve(false);
 						}
 					));

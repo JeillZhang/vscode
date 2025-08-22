@@ -30,7 +30,6 @@ import type { XtermTerminal } from '../../../../terminal/browser/xterm/xtermTerm
 import { ITerminalProfileResolverService } from '../../../../terminal/common/terminal.js';
 import { TerminalChatAgentToolsSettingId } from '../../common/terminalChatAgentToolsConfiguration.js';
 import { getRecommendedToolsOverRunInTerminal } from '../alternativeRecommendation.js';
-import { getOutput } from '../bufferOutputPolling.js';
 import { CommandLineAutoApprover, type IAutoApproveRule, type ICommandApprovalResult } from '../commandLineAutoApprover.js';
 import { CommandSimplifier } from '../commandSimplifier.js';
 import { BasicExecuteStrategy } from '../executeStrategy/basicExecuteStrategy.js';
@@ -45,6 +44,7 @@ import { ShellIntegrationQuality, ToolTerminalCreator, type IToolTerminal } from
 import { Event } from '../../../../../../base/common/event.js';
 import { TerminalToolConfirmationStorageKeys } from '../../../../chat/browser/chatContentParts/toolInvocationParts/chatTerminalToolConfirmationSubPart.js';
 import { IPollingResult, OutputMonitorState } from './monitoring/types.js';
+import { getOutput } from '../outputHelpers.js';
 
 const enum TerminalToolStorageKeysInternal {
 	TerminalSession = 'chat.terminalSessions'
@@ -230,6 +230,9 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		if (alternativeRecommendation) {
 			confirmationMessages = undefined;
 		} else {
+			// Determine auto approval, this happens even when auto approve is off to that reasoning
+			// can be reviewed in the terminal channel. It also allows gauging the effective set of
+			// commands that would be auto approved if it were enabled.
 			const actualCommand = toolEditedCommand ?? args.command;
 			const subCommands = splitCommandLineIntoSubCommands(actualCommand, shell, os);
 			const subCommandResults = subCommands.map(e => this._commandLineAutoApprover.isCommandAutoApproved(e, shell, os));
@@ -279,18 +282,19 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 				this._logService.info(`- ${reason}`);
 			}
 
-			autoApproveInfo = this._createAutoApproveInfo(
-				isAutoApproved,
-				isDenied,
-				autoApproveReason,
-				subCommandResults,
-				commandLineResult,
-			);
-
-			// TODO: Move this higher, prevent unnecessary work
+			// Apply auto approval or force it off depending on enablement/opt-in state
 			const isAutoApproveEnabled = this._configurationService.getValue(TerminalChatAgentToolsSettingId.EnableAutoApprove) === 'on';
 			const isAutoApproveWarningAccepted = this._storageService.getBoolean(TerminalToolConfirmationStorageKeys.TerminalAutoApproveWarningAccepted, StorageScope.APPLICATION, false);
-			if (!isAutoApproveEnabled) {
+			const isAutoApproveAllowed = isAutoApproveEnabled && isAutoApproveWarningAccepted;
+			if (isAutoApproveEnabled) {
+				autoApproveInfo = this._createAutoApproveInfo(
+					isAutoApproved,
+					isDenied,
+					autoApproveReason,
+					subCommandResults,
+					commandLineResult,
+				);
+			} else {
 				isAutoApproved = false;
 			}
 
@@ -298,6 +302,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 			this._telemetry.logPrepare({
 				terminalToolSessionId,
 				subCommands,
+				autoApproveAllowed: !isAutoApproveEnabled ? 'off' : isAutoApproveWarningAccepted ? 'allowed' : 'needsOptIn',
 				autoApproveResult: isAutoApproved ? 'approved' : isDenied ? 'denied' : 'manual',
 				autoApproveReason,
 				autoApproveDefault
@@ -323,7 +328,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 			if (shellType === 'powershell') {
 				shellType = 'pwsh';
 			}
-			confirmationMessages = isAutoApproved && isAutoApproveWarningAccepted ? undefined : {
+			confirmationMessages = (isAutoApproved && isAutoApproveAllowed) ? undefined : {
 				title: args.isBackground
 					? localize('runInTerminal.background', "Run `{0}` command? (background terminal)", shellType)
 					: localize('runInTerminal', "Run `{0}` command?", shellType),
@@ -485,9 +490,11 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 					terminalExecutionIdleBeforeTimeout: outputAndIdle?.state === OutputMonitorState.Idle,
 					outputLineCount: outputAndIdle?.output ? count(outputAndIdle.output, '\n') : 0,
 					pollDurationMs: outputAndIdle?.pollDurationMs,
-					autoReplyCount: outputAndIdle?.autoReplyCount ?? 0,
 					inputUserChars,
 					inputUserSigint,
+					inputToolManualAcceptCount: outputAndIdle?.inputToolManualAcceptCount ?? 0,
+					inputToolManualRejectCount: outputAndIdle?.inputToolManualRejectCount ?? 0,
+					inputToolManualChars: outputAndIdle?.inputToolManualChars ?? 0,
 				});
 			}
 		} else {
@@ -555,6 +562,9 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 					timingConnectMs,
 					inputUserChars,
 					inputUserSigint,
+					inputToolManualAcceptCount: 0,
+					inputToolManualRejectCount: 0,
+					inputToolManualChars: 0,
 				});
 			}
 
@@ -820,6 +830,6 @@ class BackgroundTerminalExecution extends Disposable {
 		this.instance.runCommand(this._commandLine, true);
 	}
 	getOutput(): string {
-		return getOutput(this._xterm?.raw, this._startMarker);
+		return getOutput(this.instance, this._startMarker);
 	}
 }

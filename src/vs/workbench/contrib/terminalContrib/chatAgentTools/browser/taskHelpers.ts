@@ -16,7 +16,7 @@ import { IToolInvocationContext, ToolProgress } from '../../../chat/common/langu
 import { ConfiguringTask, ITaskDependency, Task } from '../../../tasks/common/tasks.js';
 import { ITaskService } from '../../../tasks/common/taskService.js';
 import { ITerminalInstance } from '../../../terminal/browser/terminal.js';
-import { getOutput } from './bufferOutputPolling.js';
+import { getOutput } from './outputHelpers.js';
 import { OutputMonitor } from './tools/monitoring/outputMonitor.js';
 import { IExecution, IPollingResult, OutputMonitorState } from './tools/monitoring/types.js';
 
@@ -144,15 +144,15 @@ export async function resolveDependencyTasks(parentTask: Task, workspaceFolder: 
  * Collects output, polling duration, and idle status for all terminals.
  */
 export async function collectTerminalResults(
-	terminals: ITerminalInstance[], task: Task, instantiationService: IInstantiationService, invocationContext: IToolInvocationContext, progress: ToolProgress, token: CancellationToken, disposableStore: DisposableStore, isActive?: () => Promise<boolean>, dependencyTasks?: Task[]): Promise<Array<{ name: string; output: string; resources?: ILinkLocation[]; pollDurationMs: number; state: OutputMonitorState; autoReplyCount: number }>> {
-	const results: Array<{ state: OutputMonitorState; name: string; output: string; resources?: ILinkLocation[]; pollDurationMs: number; autoReplyCount: number }> = [];
+	terminals: ITerminalInstance[], task: Task, instantiationService: IInstantiationService, invocationContext: IToolInvocationContext, progress: ToolProgress, token: CancellationToken, disposableStore: DisposableStore, isActive?: () => Promise<boolean>, dependencyTasks?: Task[]): Promise<Array<{ name: string; output: string; resources?: ILinkLocation[]; pollDurationMs: number; state: OutputMonitorState; inputToolManualAcceptCount: number; inputToolManualRejectCount: number; inputToolManualChars: number }>> {
+	const results: Array<{ state: OutputMonitorState; name: string; output: string; resources?: ILinkLocation[]; pollDurationMs: number; inputToolManualAcceptCount: number; inputToolManualRejectCount: number; inputToolManualChars: number }> = [];
 	if (token.isCancellationRequested) {
 		return results;
 	}
 	for (const instance of terminals) {
 		progress.report({ message: new MarkdownString(`Checking output for \`${instance.shellLaunchConfig.name ?? 'unknown'}\``) });
 		const execution = {
-			getOutput: () => getOutput(instance.xterm?.raw) ?? '',
+			getOutput: () => getOutput(instance) ?? '',
 			isActive,
 			task,
 			instance,
@@ -171,7 +171,9 @@ export async function collectTerminalResults(
 			pollDurationMs: outputAndIdle?.pollDurationMs ?? 0,
 			resources: outputAndIdle?.resources,
 			state: outputAndIdle?.state,
-			autoReplyCount: outputAndIdle?.autoReplyCount ?? 0
+			inputToolManualAcceptCount: outputAndIdle?.inputToolManualAcceptCount ?? 0,
+			inputToolManualRejectCount: outputAndIdle?.inputToolManualRejectCount ?? 0,
+			inputToolManualChars: outputAndIdle?.inputToolManualChars ?? 0,
 		});
 	}
 	return results;
@@ -203,12 +205,21 @@ export async function taskProblemPollFn(execution: IExecution, token: Cancellati
 				}
 			}
 			if (problemList.length === 0) {
-				return { state: OutputMonitorState.Idle, output: 'The task succeeded with no problems.' };
+				return {
+					state: OutputMonitorState.Idle,
+					output: 'The task succeeded with no problems.',
+					inputToolManualAcceptCount: 0,
+					inputToolManualRejectCount: 0,
+					inputToolManualChars: 0,
+				};
 			}
 			return {
 				state: OutputMonitorState.Idle,
 				output: problemList.join('\n'),
 				resources: resultResources,
+				inputToolManualAcceptCount: 0,
+				inputToolManualRejectCount: 0,
+				inputToolManualChars: 0,
 			};
 		}
 	}
