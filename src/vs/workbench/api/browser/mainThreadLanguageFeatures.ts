@@ -619,7 +619,7 @@ export class MainThreadLanguageFeatures extends Disposable implements MainThread
 		this._registrations.set(handle, this._languageFeaturesService.completionProvider.register(selector, provider));
 	}
 
-	$registerInlineCompletionsSupport(handle: number, selector: IDocumentFilterDto[], supportsHandleEvents: boolean, extensionId: string, extensionVersion: string, groupId: string | undefined, yieldsToExtensionIds: string[], displayName: string | undefined, debounceDelayMs: number | undefined, eventHandle: number | undefined): void {
+	$registerInlineCompletionsSupport(handle: number, selector: IDocumentFilterDto[], supportsHandleEvents: boolean, extensionId: string, extensionVersion: string, groupId: string | undefined, yieldsToExtensionIds: string[], displayName: string | undefined, debounceDelayMs: number | undefined, excludesExtensionIds: string[], eventHandle: number | undefined): void {
 		const provider: languages.InlineCompletionsProvider<IdentifiableInlineCompletions> = {
 			provideInlineCompletions: async (model: ITextModel, position: EditorPosition, context: languages.InlineCompletionContext, token: CancellationToken): Promise<IdentifiableInlineCompletions | undefined> => {
 				return this._proxy.$provideInlineCompletions(handle, model.uri, position, context, token);
@@ -677,6 +677,7 @@ export class MainThreadLanguageFeatures extends Disposable implements MainThread
 					sameShapeReplacements: lifetimeSummary.sameShapeReplacements,
 					extensionId,
 					extensionVersion,
+					groupId,
 					partiallyAccepted: lifetimeSummary.partiallyAccepted,
 					partiallyAcceptedCountSinceOriginal: lifetimeSummary.partiallyAcceptedCountSinceOriginal,
 					partiallyAcceptedRatioSinceOriginal: lifetimeSummary.partiallyAcceptedRatioSinceOriginal,
@@ -702,6 +703,7 @@ export class MainThreadLanguageFeatures extends Disposable implements MainThread
 			groupId: groupId ?? extensionId,
 			providerId: new languages.ProviderId(extensionId, extensionVersion, groupId),
 			yieldsToGroupIds: yieldsToExtensionIds,
+			excludesGroupIds: excludesExtensionIds,
 			debounceDelayMs,
 			displayName,
 			toString() {
@@ -1320,6 +1322,7 @@ type InlineCompletionEndOfLifeEvent = {
 	correlationId: string | undefined;
 	extensionId: string;
 	extensionVersion: string;
+	groupId: string | undefined;
 	shown: boolean;
 	shownDuration: number;
 	shownDurationUncollapsed: number;
@@ -1358,6 +1361,7 @@ type InlineCompletionsEndOfLifeClassification = {
 	correlationId: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The correlation identifier for the inline completion' };
 	extensionId: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The identifier for the extension that contributed the inline completion' };
 	extensionVersion: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The version of the extension that contributed the inline completion' };
+	groupId: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The group ID of the extension that contributed the inline completion' };
 	shown: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'Whether the inline completion was shown to the user' };
 	shownDuration: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The duration for which the inline completion was shown' };
 	shownDurationUncollapsed: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The duration for which the inline completion was shown without collapsing' };
