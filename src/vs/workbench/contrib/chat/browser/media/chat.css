@@ -417,7 +417,6 @@
 }
 
 .interactive-item-container .value .rendered-markdown {
-	letter-spacing: 0.01em;
 	line-height: 1.5em;
 	font-size: var(--vscode-chat-font-size-body-m);
 	font-family: var(--vscode-chat-font-family, inherit);
@@ -1921,7 +1920,6 @@ have to be updated for changes to the rules above, or to support more deeply nes
 	padding-top: 2px;
 
 	> .codicon[class*='codicon-'] {
-		height: 12px;
 		font-size: var(--vscode-chat-font-size-body-s);
 
 		&::before {
