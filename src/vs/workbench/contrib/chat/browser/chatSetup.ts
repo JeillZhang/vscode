@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import './media/chatSetup.css';
 import { $ } from '../../../../base/browser/dom.js';
 import { IButton } from '../../../../base/browser/ui/button/button.js';
 import { Dialog, DialogContentsAlignment } from '../../../../base/browser/ui/dialog/dialog.js';
@@ -29,7 +30,7 @@ import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/c
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { createWorkbenchDialogOptions } from '../../../../platform/dialogs/browser/dialog.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
@@ -72,7 +73,7 @@ import { ILanguageModelsService } from '../common/languageModels.js';
 import { CHAT_CATEGORY, CHAT_OPEN_ACTION_ID, CHAT_SETUP_ACTION_ID } from './actions/chatActions.js';
 import { ChatViewId, IChatWidgetService, showCopilotView } from './chat.js';
 import { CHAT_SIDEBAR_PANEL_ID } from './chatViewPane.js';
-import './media/chatSetup.css';
+import { chatViewsWelcomeRegistry } from './viewsWelcome/chatViewsWelcome.js';
 
 const defaultChat = {
 	extensionId: product.defaultChatAgent?.extensionId ?? '',
@@ -156,7 +157,7 @@ class SetupAgent extends Disposable implements IChatAgentImplementation {
 
 			// Register tools
 			disposables.add(SetupTool.registerTool(instantiationService, {
-				id: 'setup.tools.createNewWorkspace',
+				id: 'setup_tools_createNewWorkspace',
 				source: ToolDataSource.Internal,
 				icon: Codicon.newFolder,
 				displayName: localize('setupToolDisplayName', "New Workspace"),
@@ -827,6 +828,7 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 		@ITelemetryService private readonly telemetryService: ITelemetryService,
 		@IChatEntitlementService chatEntitlementService: ChatEntitlementService,
 		@ILogService private readonly logService: ILogService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService
 	) {
 		super();
 
@@ -860,13 +862,16 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 						const { agent, disposable } = SetupAgent.registerDefaultAgents(this.instantiationService, ChatAgentLocation.Panel, mode, context, controller);
 						panelAgentDisposables.add(disposable);
 						panelAgentDisposables.add(agent.onUnresolvableError(() => {
-							// An unresolvable error from our agent registrations means that
-							// Copilot is unhealthy for some reason. We clear our panel
-							// registration to give Copilot a chance to show a custom message
-							// to the user from the views and stop pretending as if there was
-							// a functional agent.
-							this.logService.error('[chat setup] Unresolvable error from Copilot agent registration, clearing registration.');
-							panelAgentDisposables.dispose();
+							const panelAgentHasGuidance = chatViewsWelcomeRegistry.get().some(descriptor => this.contextKeyService.contextMatchesRules(descriptor.when));
+							if (panelAgentHasGuidance) {
+								// An unresolvable error from our agent registrations means that
+								// Copilot is unhealthy for some reason. We clear our panel
+								// registration to give Copilot a chance to show a custom message
+								// to the user from the views and stop pretending as if there was
+								// a functional agent.
+								this.logService.error('[chat setup] Unresolvable error from Copilot agent registration, clearing registration.');
+								panelAgentDisposables.dispose();
+							}
 						}));
 					}
 
@@ -1027,9 +1032,12 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 					title: localize2('managePlan', "Upgrade to Copilot Pro"),
 					category: localize2('chat.category', 'Chat'),
 					f1: true,
-					precondition: ContextKeyExpr.or(
-						ChatContextKeys.Entitlement.canSignUp,
-						ChatContextKeys.Entitlement.free,
+					precondition: ContextKeyExpr.and(
+						ContextKeyExpr.not(`config.${CHAT_DISABLED_CONFIGURATION_KEY}`),
+						ContextKeyExpr.or(
+							ChatContextKeys.Entitlement.canSignUp,
+							ChatContextKeys.Entitlement.free
+						)
 					),
 					menu: {
 						id: MenuId.ChatTitleBarMenu,
@@ -1046,7 +1054,7 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 				});
 			}
 
-			override async run(accessor: ServicesAccessor, from?: string): Promise<void> {
+			override async run(accessor: ServicesAccessor): Promise<void> {
 				const openerService = accessor.get(IOpenerService);
 				const hostService = accessor.get(IHostService);
 				const commandService = accessor.get(ICommandService);
@@ -1080,9 +1088,12 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 					title: localize2('manageOverages', "Manage Copilot Overages"),
 					category: localize2('chat.category', 'Chat'),
 					f1: true,
-					precondition: ContextKeyExpr.or(
-						ChatContextKeys.Entitlement.pro,
-						ChatContextKeys.Entitlement.proPlus,
+					precondition: ContextKeyExpr.and(
+						ContextKeyExpr.not(`config.${CHAT_DISABLED_CONFIGURATION_KEY}`),
+						ContextKeyExpr.or(
+							ChatContextKeys.Entitlement.pro,
+							ChatContextKeys.Entitlement.proPlus,
+						)
 					),
 					menu: {
 						id: MenuId.ChatTitleBarMenu,
@@ -1102,7 +1113,7 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 				});
 			}
 
-			override async run(accessor: ServicesAccessor, from?: string): Promise<void> {
+			override async run(accessor: ServicesAccessor): Promise<void> {
 				const openerService = accessor.get(IOpenerService);
 				openerService.open(URI.parse(defaultChat.manageOveragesUrl));
 			}
@@ -1219,7 +1230,9 @@ export class ChatTeardownContribution extends Disposable implements IWorkbenchCo
 
 	private registerActions(context: ChatEntitlementContext): void {
 
-		// TODO@bpasero eventually replace this with the more broadly available setting for AI feature enablement and migrate UI state over to the setting (also drop Context.Installed/Context.Disabled and only use Hidden)
+		// TODO@bpasero eventually replace this with the more broadly available
+		// setting for AI feature enablement and migrate UI state over to the
+		// setting (also drop Context.Installed/Context.Disabled and only use Hidden)
 		const that = this;
 		class ChatSetupHideAction extends Action2 {
 
