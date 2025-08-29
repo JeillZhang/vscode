@@ -45,6 +45,10 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 
 	private _lastPromptMarker: XtermMarker | undefined;
 
+	private _lastPrompt: string | undefined;
+
+	private _promptPart: ChatElicitationRequestPart | undefined;
+
 	private _pollingResult: IPollingResult & { pollDurationMs: number } | undefined;
 	get pollingResult(): IPollingResult & { pollDurationMs: number } | undefined { return this._pollingResult; }
 
@@ -99,9 +103,11 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 						const shouldContinuePolling = await this._handleTimeoutState(command, invocationContext, extended, token);
 						if (shouldContinuePolling) {
 							extended = true;
-							this._state = OutputMonitorState.PollingForIdle;
 							continue;
 						} else {
+							this._promptPart?.hide();
+							this._promptPart?.dispose();
+							this._promptPart = undefined;
 							break;
 						}
 					}
@@ -134,7 +140,9 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 				pollDurationMs: Date.now() - pollStartTime,
 				resources
 			};
-
+			this._promptPart?.hide();
+			this._promptPart?.dispose();
+			this._promptPart = undefined;
 			this._onDidFinishCommand.fire();
 		}
 	}
@@ -143,8 +151,9 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 	private async _handleIdleState(token: CancellationToken): Promise<{ resources?: ILinkLocation[]; modelOutputEvalResponse?: string; shouldContinuePollling: boolean }> {
 		const confirmationPrompt = await this._determineUserInputOptions(this._execution, token);
 		const suggestedOption = await this._selectAndHandleOption(confirmationPrompt, token);
-		if (confirmationPrompt && confirmationPrompt.options.length) {
-			const confirmed = await this._confirmRunInTerminal(suggestedOption || confirmationPrompt.options[0], this._execution, confirmationPrompt);
+
+		if (confirmationPrompt?.options.length) {
+			const confirmed = await this._confirmRunInTerminal(suggestedOption ?? confirmationPrompt.options[0], this._execution, confirmationPrompt);
 			if (confirmed) {
 				const changed = await this._waitForNextDataOrActivityChange();
 				if (!changed) {
@@ -179,9 +188,6 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		const { promise: p, part } = await this._promptForMorePolling(command, token, invocationContext);
 		let continuePollingDecisionP: Promise<boolean> | undefined = p;
 		continuePollingPart = part;
-
-		// Always use extended polling while a timeout prompt is visible
-		extended = true;
 
 		// Start another polling pass and race it against the user's decision
 		const nextPollP = this._waitForIdle(this._execution, extended, token)
@@ -303,7 +309,6 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		if (token.isCancellationRequested || this._state === OutputMonitorState.Cancelled) {
 			return { promise: Promise.resolve(false) };
 		}
-		this._state = OutputMonitorState.Prompting;
 		const chatModel = this._chatService.getSession(context.sessionId);
 		if (chatModel instanceof ChatModel) {
 			const request = chatModel.getRequests().at(-1);
@@ -320,16 +325,19 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 							thePart.state = 'accepted';
 							thePart.hide();
 							thePart.dispose();
+							this._promptPart = undefined;
 							resolve(true);
 						},
 						async () => {
 							thePart.state = 'rejected';
 							thePart.hide();
 							this._state = OutputMonitorState.Cancelled;
+							this._promptPart = undefined;
 							resolve(false);
 						}
 					));
 					chatModel.acceptResponseProgress(request, thePart);
+					this._promptPart = thePart;
 				});
 
 				return { promise, part };
@@ -369,7 +377,7 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		if (!models.length) {
 			return undefined;
 		}
-		const lastFiveLines = execution.getOutput().trimEnd().split('\n').slice(-5).join('\n');
+		const lastFiveLines = execution.getOutput(this._lastPromptMarker).trimEnd().split('\n').slice(-5).join('\n');
 		const promptText =
 			`Analyze the following terminal output. If it contains a prompt requesting user input (such as a confirmation, selection, or yes/no question) and that prompt has NOT already been answered, extract the prompt text and the possible options as a JSON object with keys 'prompt' and 'options' (an array of strings or an object with option to description mappings). For example, if the options are "[Y] Yes  [A] Yes to All  [N] No  [L] No to All  [C] Cancel", the option to description mappings would be {"Y": "Yes", "A": "Yes to All", "N": "No", "L": "No to All", "C": "Cancel"}. If there is no such prompt, return null.
 			Examples:
@@ -445,11 +453,13 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 			// Unable to register marker, so cannot track prompt location
 			return undefined;
 		}
-		if (this._lastPromptMarker?.line === currentMarker.line) {
-			// Same prompt as last time, so avoid re-prompting
+
+		if (this._lastPrompt === prompt) {
 			return;
 		}
+
 		this._lastPromptMarker = currentMarker;
+		this._lastPrompt = prompt;
 
 		const promptText = `Given the following confirmation prompt and options from a terminal output, which option is the default or best value?\nPrompt: "${prompt}"\nOptions: ${JSON.stringify(options)}\nRespond with only the option string.`;
 		const response = await this._languageModelsService.sendChatRequest(models[0], new ExtensionIdentifier('core'), [
