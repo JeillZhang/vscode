@@ -37,6 +37,7 @@ export interface IOutputMonitorTelemetryCounters {
 	inputToolManualAcceptCount: number;
 	inputToolManualRejectCount: number;
 	inputToolManualChars: number;
+	inputToolManualShownCount: number;
 }
 
 export class OutputMonitor extends Disposable implements IOutputMonitor {
@@ -55,7 +56,8 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 	private readonly _outputMonitorTelemetryCounters: IOutputMonitorTelemetryCounters = {
 		inputToolManualAcceptCount: 0,
 		inputToolManualRejectCount: 0,
-		inputToolManualChars: 0
+		inputToolManualChars: 0,
+		inputToolManualShownCount: 0
 	};
 	get outputMonitorTelemetryCounters(): Readonly<IOutputMonitorTelemetryCounters> { return this._outputMonitorTelemetryCounters; }
 
@@ -408,6 +410,9 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 					'prompt' in obj && isString(obj.prompt) &&
 					'options' in obj
 				) {
+					if (this._lastPrompt === obj.prompt) {
+						return;
+					}
 					if (Array.isArray(obj.options) && obj.options.every(isString)) {
 						return { prompt: obj.prompt, options: obj.options };
 					} else if (isObject(obj.options) && Object.values(obj.options).every(isString)) {
@@ -444,10 +449,6 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 		if (!currentMarker) {
 			// Unable to register marker, so cannot track prompt location
 			return undefined;
-		}
-
-		if (this._lastPrompt === prompt) {
-			return;
 		}
 
 		this._lastPromptMarker = currentMarker;
@@ -514,6 +515,9 @@ export class OutputMonitor extends Disposable implements IOutputMonitor {
 				undefined,
 				getMoreActions(suggestedOption, confirmationPrompt)
 			));
+			this._register(thePart.onDidRequestHide(() => {
+				this._outputMonitorTelemetryCounters.inputToolManualShownCount++;
+			}));
 			const inputDataDisposable = this._register(execution.instance.onDidInputData(() => {
 				thePart.hide();
 				thePart.dispose();
