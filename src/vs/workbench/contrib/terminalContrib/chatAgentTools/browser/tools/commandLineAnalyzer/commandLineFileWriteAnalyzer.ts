@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { Disposable } from '../../../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { localize } from '../../../../../../../nls.js';
 import { IConfigurationService } from '../../../../../../../platform/configuration/common/configuration.js';
@@ -12,7 +13,7 @@ import { TerminalChatAgentToolsSettingId } from '../../../common/terminalChatAge
 import type { TreeSitterCommandParser } from '../../treeSitterCommandParser.js';
 import type { ICommandLineAnalyzer, ICommandLineAnalyzerOptions, ICommandLineAnalyzerResult } from './commandLineAnalyzer.js';
 
-export class CommandLineFileWriteAnalyzer implements ICommandLineAnalyzer {
+export class CommandLineFileWriteAnalyzer extends Disposable implements ICommandLineAnalyzer {
 	constructor(
 		private readonly _treeSitterCommandParser: TreeSitterCommandParser,
 		private readonly _log: (message: string, ...args: unknown[]) => void,
@@ -20,6 +21,7 @@ export class CommandLineFileWriteAnalyzer implements ICommandLineAnalyzer {
 		@IHistoryService private readonly _historyService: IHistoryService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 	) {
+		super();
 	}
 
 	async analyze(options: ICommandLineAnalyzerOptions): Promise<ICommandLineAnalyzerResult> {
@@ -28,8 +30,10 @@ export class CommandLineFileWriteAnalyzer implements ICommandLineAnalyzer {
 
 	private async _getFileWrites(options: ICommandLineAnalyzerOptions): Promise<URI[] | string[]> {
 		let fileWrites: URI[] | string[] = [];
-		const fileWriteCaptures = await this._treeSitterCommandParser.getFileWrites(options.treeSitterLanguage, options.commandLine);
-		if (fileWriteCaptures.length) {
+		const capturedFileWrites = await this._treeSitterCommandParser.getFileWrites(options.treeSitterLanguage, options.commandLine);
+		// TODO: Handle environment variables https://github.com/microsoft/vscode/issues/274166
+		// TODO: Handle command substitions/complex destinations https://github.com/microsoft/vscode/issues/274167
+		if (capturedFileWrites.length) {
 			let cwd = await options.instance?.getCwdResource();
 			if (!cwd) {
 				const activeWorkspaceRootUri = this._historyService.getLastActiveWorkspaceRoot();
@@ -37,10 +41,10 @@ export class CommandLineFileWriteAnalyzer implements ICommandLineAnalyzer {
 				cwd = workspaceFolder?.uri;
 			}
 			if (cwd) {
-				fileWrites = fileWriteCaptures.map(e => URI.joinPath(cwd, e.node.text));
+				fileWrites = capturedFileWrites.map(e => URI.joinPath(cwd, e));
 			} else {
 				this._log('Cwd could not be detected');
-				fileWrites = fileWriteCaptures.map(e => e.node.text);
+				fileWrites = capturedFileWrites;
 			}
 		}
 		this._log('File writes detected', fileWrites.map(e => e.toString()));
