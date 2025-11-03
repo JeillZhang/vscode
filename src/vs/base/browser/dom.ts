@@ -799,6 +799,7 @@ export function setParentFlowTo(fromChildElement: HTMLElement, toParentElement: 
 function getParentFlowToElement(node: HTMLElement): HTMLElement | null {
 	const flowToParentId = node.dataset[parentFlowToDataKey];
 	if (typeof flowToParentId === 'string') {
+		// eslint-disable-next-line no-restricted-syntax
 		return node.ownerDocument.getElementById(flowToParentId);
 	}
 	return null;
@@ -995,14 +996,14 @@ export const sharedMutationObserver = new class {
 };
 
 export function createMetaElement(container: HTMLElement = mainWindow.document.head): HTMLMetaElement {
-	return createHeadElement('meta', container) as HTMLMetaElement;
+	return createHeadElement('meta', container);
 }
 
 export function createLinkElement(container: HTMLElement = mainWindow.document.head): HTMLLinkElement {
-	return createHeadElement('link', container) as HTMLLinkElement;
+	return createHeadElement('link', container);
 }
 
-function createHeadElement(tagName: string, container: HTMLElement = mainWindow.document.head): HTMLElement {
+function createHeadElement<K extends keyof HTMLElementTagNameMap>(tagName: K, container: HTMLElement = mainWindow.document.head): HTMLElementTagNameMap[K] {
 	const element = document.createElement(tagName);
 	container.appendChild(element);
 	return element;

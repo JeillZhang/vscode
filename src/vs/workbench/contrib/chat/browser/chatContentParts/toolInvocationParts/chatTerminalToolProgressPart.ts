@@ -196,12 +196,20 @@ export class ChatTerminalToolProgressPart extends BaseChatToolInvocationSubPart 
 		if (!this._actionBar.value) {
 			return;
 		}
+		const actionBar = this._actionBar.value;
 		const isTerminalHidden = this._terminalChatService.isBackgroundTerminal(terminalToolSessionId);
 		const command = this._getResolvedCommand(terminalInstance);
 		if (command) {
+			const existingFocus = this._focusAction.value;
+			if (existingFocus) {
+				const existingIndex = actionBar.viewItems.findIndex(item => item.action === existingFocus);
+				if (existingIndex >= 0) {
+					actionBar.pull(existingIndex);
+				}
+			}
 			const focusAction = this._instantiationService.createInstance(FocusChatInstanceAction, terminalInstance, command, isTerminalHidden);
 			this._focusAction.value = focusAction;
-			this._actionBar.value.push(focusAction, { icon: true, label: false, index: 0 });
+			actionBar.push(focusAction, { icon: true, label: false, index: 0 });
 			this._ensureShowOutputAction();
 		}
 	}
@@ -218,6 +226,9 @@ export class ChatTerminalToolProgressPart extends BaseChatToolInvocationSubPart 
 		if (!showOutputAction) {
 			showOutputAction = new ToggleChatTerminalOutputAction(expanded => this._toggleOutput(expanded));
 			this._showOutputAction.value = showOutputAction;
+			if (command.exitCode) {
+				this._toggleOutput(true);
+			}
 		}
 		showOutputAction.syncPresentation(this._outputContainer.classList.contains('expanded'));
 
@@ -348,6 +359,7 @@ export class ChatTerminalToolProgressPart extends BaseChatToolInvocationSubPart 
 		const content = this._renderOutput(output);
 		const theme = this._terminalInstance?.xterm?.getXtermTheme();
 		if (theme) {
+			// eslint-disable-next-line no-restricted-syntax
 			const inlineTerminal = content.querySelector('div');
 			if (inlineTerminal) {
 				inlineTerminal.style.setProperty('background-color', theme.background || 'transparent');
