@@ -330,6 +330,12 @@ configurationRegistry.registerConfiguration({
 				},
 			}
 		},
+		[ChatConfiguration.SuspendThrottling]: { // TODO@deepak1556 remove this once https://github.com/microsoft/vscode/issues/263554 is resolved.
+			type: 'boolean',
+			description: nls.localize('chat.suspendThrottling', "Controls whether background throttling is suspended when a chat request is in progress, allowing the chat session to continue even when the window is not in focus."),
+			default: true,
+			tags: ['preview']
+		},
 		'chat.sendElementsToChat.enabled': {
 			default: true,
 			description: nls.localize('chat.sendElementsToChat.enabled', "Controls whether elements can be sent to chat from the Simple Browser."),
@@ -811,6 +817,12 @@ configurationRegistry.registerConfiguration({
 				mode: 'auto'
 			}
 		},
+		[ChatConfiguration.ExitAfterDelegation]: {
+			type: 'boolean',
+			description: nls.localize('chat.exitAfterDelegation', "Controls whether the chat panel automatically exits after delegating a request to another session."),
+			default: true,
+			tags: ['preview'],
+		},
 		'chat.extensionUnification.enabled': {
 			type: 'boolean',
 			description: nls.localize('chat.extensionUnification.enabled', "Enables the unification of GitHub Copilot extensions. When enabled, all GitHub Copilot functionality is served from the GitHub Copilot Chat extension. When disabled, the GitHub Copilot and GitHub Copilot Chat extensions operate independently."),
@@ -978,19 +990,30 @@ class ChatAgentActionsContribution extends Disposable implements IWorkbenchContr
 		this._register(this.chatModeService.onDidChangeChatModes(() => {
 			const { custom } = this.chatModeService.getModes();
 			const currentModeIds = new Set<string>();
+			const currentModeNames = new Map<string, string>();
 
-			// Register new modes
 			for (const mode of custom) {
-				currentModeIds.add(mode.id);
-				if (!this._modeActionDisposables.has(mode.id)) {
-					this._registerModeAction(mode);
+				const modeName = mode.name.get();
+				if (currentModeNames.has(modeName)) {
+					// If there is a name collision, the later one in the list wins
+					currentModeIds.delete(currentModeNames.get(modeName)!);
 				}
+
+				currentModeNames.set(modeName, mode.id);
+				currentModeIds.add(mode.id);
 			}
 
-			// Remove modes that no longer exist
+			// Remove modes that no longer exist and those replaced by modes later in the list with same name
 			for (const modeId of this._modeActionDisposables.keys()) {
 				if (!currentModeIds.has(modeId)) {
 					this._modeActionDisposables.deleteAndDispose(modeId);
+				}
+			}
+
+			// Register new modes
+			for (const mode of custom) {
+				if (currentModeIds.has(mode.id) && !this._modeActionDisposables.has(mode.id)) {
+					this._registerModeAction(mode);
 				}
 			}
 		}));
