@@ -8,7 +8,7 @@ import { raceCancellationError } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { MutableDisposable, combinedDisposable, Disposable, DisposableMap, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
+import { combinedDisposable, Disposable, DisposableMap, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../base/common/map.js';
 import { Schemas } from '../../../../base/common/network.js';
 import * as resources from '../../../../base/common/resources.js';
@@ -260,6 +260,8 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 
 	private readonly _onDidChangeContentProviderSchemes = this._register(new Emitter<{ readonly added: string[]; readonly removed: string[] }>());
 	public get onDidChangeContentProviderSchemes() { return this._onDidChangeContentProviderSchemes.event; }
+	private readonly _onDidChangeSessionOptions = this._register(new Emitter<{ readonly resource: URI; readonly updates: ReadonlyArray<{ optionId: string; value: string }> }>());
+	public get onDidChangeSessionOptions() { return this._onDidChangeSessionOptions.event; }
 
 	private readonly inProgressMap: Map<string, number> = new Map();
 	private readonly _sessionTypeOptions: Map<string, IChatSessionProviderOptionGroup[]> = new Map();
@@ -633,31 +635,8 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 		const disposableStore = new DisposableStore();
 		this._contributionDisposables.set(contribution.type, disposableStore);
 
-		const providerDependentDisposables = new MutableDisposable<IDisposable>();
-		disposableStore.add(providerDependentDisposables);
-
-		// NOTE: Only those extensions that register as 'content providers' should have agents and commands auto-registered
-		//       This relationship may change in the future as the API grows.
-		const reconcileProviderRegistrations = () => {
-			if (this._contentProviders.has(contribution.type)) {
-				if (!providerDependentDisposables.value) {
-					providerDependentDisposables.value = combinedDisposable(
-						this._registerAgent(contribution, ext),
-						this._registerCommands(contribution)
-					);
-				}
-			} else {
-				providerDependentDisposables.clear();
-			}
-		};
-
-		reconcileProviderRegistrations();
-		disposableStore.add(this.onDidChangeContentProviderSchemes(({ added, removed }) => {
-			if (added.includes(contribution.type) || removed.includes(contribution.type)) {
-				reconcileProviderRegistrations();
-			}
-		}));
-
+		disposableStore.add(this._registerAgent(contribution, ext));
+		disposableStore.add(this._registerCommands(contribution));
 		disposableStore.add(this._registerMenuItems(contribution, ext));
 	}
 
@@ -1112,6 +1091,7 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 		for (const u of updates) {
 			this.setSessionOption(sessionResource, u.optionId, u.value);
 		}
+		this._onDidChangeSessionOptions.fire({ resource: sessionResource, updates });
 	}
 
 	/**

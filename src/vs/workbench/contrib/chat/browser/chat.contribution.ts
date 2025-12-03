@@ -373,6 +373,15 @@ configurationRegistry.registerConfiguration({
 				mode: 'auto'
 			}
 		},
+		[ChatConfiguration.ChatViewTitleEnabled]: { // TODO@bpasero decide on a default
+			type: 'boolean',
+			default: product.quality !== 'stable',
+			description: nls.localize('chat.viewTitle.enabled', "Show the title of the chat above the chat in the chat view."),
+			tags: ['preview', 'experimental'],
+			experiment: {
+				mode: 'auto'
+			}
+		},
 		[ChatConfiguration.NotifyWindowOnResponseReceived]: {
 			type: 'boolean',
 			default: true,
@@ -555,7 +564,7 @@ configurationRegistry.registerConfiguration({
 			type: 'string',
 			enum: ['disabled', 'view', 'single-view'], // TODO@bpasero remove this setting eventually
 			description: nls.localize('chat.sessionsViewLocation.description', "Controls where to show the agent sessions menu."),
-			default: product.quality === 'stable' ? 'view' : 'single-view',
+			default: product.quality === 'stable' ? 'view' : 'disabled',
 			tags: ['experimental'],
 			experiment: {
 				mode: 'auto'
