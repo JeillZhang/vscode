@@ -73,7 +73,9 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 
 	private viewPaneContainer: HTMLElement | undefined;
 	private readonly chatViewLocationContext: IContextKey<ViewContainerLocation>;
+
 	private lastDimensions: { height: number; width: number } | undefined;
+	private readonly lastDimensionsPerOrientation: Map<AgentSessionsViewerOrientation, { height: number; width: number }> = new Map();
 
 	private welcomeController: ChatViewWelcomeController | undefined;
 
@@ -274,6 +276,7 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 	private sessionsCount = 0;
 	private sessionsViewerLimited = true;
 	private sessionsViewerOrientation = AgentSessionsViewerOrientation.Stacked;
+	private sessionsViewerOrientationConfiguration: 'auto' | 'stacked' | 'sideBySide' = 'auto';
 	private sessionsViewerOrientationContext: IContextKey<AgentSessionsViewerOrientation>;
 	private sessionsViewerLimitedContext: IContextKey<boolean>;
 	private sessionsViewerPosition = AgentSessionsViewerPosition.Right;
@@ -344,7 +347,26 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 			}
 		}));
 
+		// Deal with orientation configuration
+		this._register(Event.runAndSubscribe(Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration(ChatConfiguration.ChatViewSessionsOrientation)), e => {
+			const newSessionsViewerOrientationConfiguration = this.configurationService.getValue<'auto' | 'stacked' | 'sideBySide'>(ChatConfiguration.ChatViewSessionsOrientation);
+			this.updateConfiguredSessionsViewerOrientation(newSessionsViewerOrientationConfiguration, !e /* only layout from event */);
+		}));
+
 		return sessionsControl;
+	}
+
+	updateConfiguredSessionsViewerOrientation(orientation: 'auto' | 'stacked' | 'sideBySide', skipLayout?: boolean): void {
+		const oldSessionsViewerOrientationConfiguration = this.sessionsViewerOrientationConfiguration;
+		this.sessionsViewerOrientationConfiguration = orientation;
+
+		if (oldSessionsViewerOrientationConfiguration === this.sessionsViewerOrientationConfiguration) {
+			return; // no change from our existing config
+		}
+
+		if (!skipLayout && this.lastDimensions) {
+			this.layoutBody(this.lastDimensions.height, this.lastDimensions.width);
+		}
 	}
 
 	private notifySessionsControlLimitedChanged(triggerLayout: boolean): void {
@@ -508,13 +530,6 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 				sessionsControl.clearFocus(); // improve visual appearance when switching visibility by clearing focus
 			}
 			this.notifySessionsControlCountChanged();
-		}));
-
-		// Layout when orientation configuration changes
-		this._register(Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration(ChatConfiguration.ChatViewSessionsOrientation))(() => {
-			if (this.lastDimensions) {
-				this.layoutBody(this.lastDimensions.height, this.lastDimensions.width);
-			}
 		}));
 	}
 
@@ -682,6 +697,9 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 
 		// Chat Widget
 		this._widget.layout(remainingHeight, remainingWidth);
+
+		// Remember last dimensions per orientation
+		this.lastDimensionsPerOrientation.set(this.sessionsViewerOrientation, { height, width });
 	}
 
 	private layoutSessionsControl(height: number, width: number): { heightReduction: number; widthReduction: number } {
@@ -692,10 +710,9 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 			return { heightReduction, widthReduction };
 		}
 
-		const configuredSessionsViewerOrientation = this.configurationService.getValue<'auto' | 'stacked' | 'sideBySide' | unknown>(ChatConfiguration.ChatViewSessionsOrientation);
 		const oldSessionsViewerOrientation = this.sessionsViewerOrientation;
 		let newSessionsViewerOrientation: AgentSessionsViewerOrientation;
-		switch (configuredSessionsViewerOrientation) {
+		switch (this.sessionsViewerOrientationConfiguration) {
 			// Stacked
 			case 'stacked':
 				newSessionsViewerOrientation = AgentSessionsViewerOrientation.Stacked;
@@ -765,6 +782,10 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 		}
 
 		return { heightReduction, widthReduction };
+	}
+
+	getLastDimensionsForCurrentOrientation(orientation: AgentSessionsViewerOrientation): { height: number; width: number } | undefined {
+		return this.lastDimensionsPerOrientation.get(orientation);
 	}
 
 	//#endregion
