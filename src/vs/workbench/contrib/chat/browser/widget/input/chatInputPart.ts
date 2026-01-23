@@ -1447,7 +1447,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		// Step 3: Filter to visible groups (has items AND passes `when` clause)
 		const visibleGroupIds = new Set<string>();
 		for (const optionGroup of optionGroups) {
-			const hasItems = optionGroup.items.length > 0;
+			const hasItems = optionGroup.items.length > 0 || (optionGroup.commands || []).length > 0;
 			const passesWhenClause = this.evaluateOptionGroupVisibility(optionGroup);
 
 			if (hasItems && passesWhenClause) {
@@ -1942,7 +1942,8 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 						},
 					};
 					const chatSessionPosition = isIChatResourceViewContext(widget.viewContext) ? 'editor' : 'sidebar';
-					const Picker = action.id === OpenSessionTargetPickerAction.ID ? SessionTypePickerActionItem : DelegationSessionPickerActionItem;
+					const isWelcomeViewMode = !!this.options.sessionTypePickerDelegate?.setActiveSessionProvider;
+					const Picker = (action.id === OpenSessionTargetPickerAction.ID || isWelcomeViewMode) ? SessionTypePickerActionItem : DelegationSessionPickerActionItem;
 					return this.sessionTargetWidget = this.instantiationService.createInstance(Picker, action, chatSessionPosition, delegate, pickerOptions);
 				} else if (action.id === OpenWorkspacePickerAction.ID && action instanceof MenuItemAction) {
 					if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY && this.options.workspacePickerDelegate) {
