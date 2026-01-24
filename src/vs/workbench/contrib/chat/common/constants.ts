@@ -41,9 +41,8 @@ export enum ChatConfiguration {
 	ShowCodeBlockProgressAnimation = 'chat.agent.codeBlockProgress',
 	RestoreLastPanelSession = 'chat.restoreLastPanelSession',
 	ExitAfterDelegation = 'chat.exitAfterDelegation',
-	CommandCenterTriStateToggle = 'chat.commandCenter.triStateToggle',
+	AgentsControlTriStateToggle = 'chat.agentsControl.triStateToggle',
 	ExplainChangesEnabled = 'chat.editing.explainChanges.enabled',
-	ImplementationAgentModel = 'chat.implementationAgentModel',
 }
 
 /**
