@@ -123,7 +123,6 @@ import { ChatImplicitContextContribution } from './attachments/chatImplicitConte
 import './widget/input/editor/chatInputCompletions.js';
 import './widget/input/editor/chatInputEditorContrib.js';
 import './widget/input/editor/chatInputEditorHover.js';
-import { ChatRelatedFilesContribution } from './attachments/chatInputRelatedFilesContrib.js';
 import { LanguageModelToolsConfirmationService } from './tools/languageModelToolsConfirmationService.js';
 import { LanguageModelToolsService, globalAutoApproveDescription } from './tools/languageModelToolsService.js';
 import './promptSyntax/promptCodingAgentActionContribution.js';
@@ -276,11 +275,6 @@ configurationRegistry.registerConfiguration({
 			description: nls.localize('chat.detectParticipant.enabled', "Enables chat participant autodetection for panel chat."),
 			default: true
 		},
-		'chat.renderRelatedFiles': {
-			type: 'boolean',
-			description: nls.localize('chat.renderRelatedFiles', "Controls whether related files should be rendered in the chat input."),
-			default: false
-		},
 		[ChatConfiguration.InlineReferencesStyle]: {
 			type: 'string',
 			enum: ['box', 'link'],
@@ -417,11 +411,6 @@ configurationRegistry.registerConfiguration({
 			type: 'boolean',
 			default: true,
 			description: nls.localize('chat.viewSessions.enabled', "Show chat agent sessions when chat is empty or to the side when chat view is wide enough."),
-		},
-		[ChatConfiguration.ChatViewSessionsShowActiveOnly]: {
-			type: 'boolean',
-			default: true,
-			markdownDescription: nls.localize('chat.viewSessions.showActiveOnly', "When enabled, only show active sessions in the stacked sessions view. When disabled, show all sessions. This setting requires {0} to be enabled.", '`#chat.viewSessions.enabled#`'),
 		},
 		[ChatConfiguration.ChatViewSessionsOrientation]: {
 			type: 'string',
@@ -607,7 +596,7 @@ configurationRegistry.registerConfiguration({
 		[ChatConfiguration.AlternativeToolAction]: {
 			type: 'boolean',
 			description: nls.localize('chat.alternativeToolAction', "When enabled, shows the Configure Tools action in the mode picker dropdown on hover instead of in the chat input."),
-			default: false,
+			default: true,
 			tags: ['experimental'],
 			experiment: {
 				mode: 'auto'
@@ -1349,7 +1338,6 @@ registerWorkbenchContribution2(ChatPromptFilesExtensionPointHandler.ID, ChatProm
 registerWorkbenchContribution2(ChatCompatibilityNotifier.ID, ChatCompatibilityNotifier, WorkbenchPhase.Eventually);
 registerWorkbenchContribution2(CodeBlockActionRendering.ID, CodeBlockActionRendering, WorkbenchPhase.BlockRestore);
 registerWorkbenchContribution2(ChatImplicitContextContribution.ID, ChatImplicitContextContribution, WorkbenchPhase.Eventually);
-registerWorkbenchContribution2(ChatRelatedFilesContribution.ID, ChatRelatedFilesContribution, WorkbenchPhase.Eventually);
 registerWorkbenchContribution2(ChatViewsWelcomeHandler.ID, ChatViewsWelcomeHandler, WorkbenchPhase.BlockStartup);
 registerWorkbenchContribution2(ChatGettingStartedContribution.ID, ChatGettingStartedContribution, WorkbenchPhase.Eventually);
 registerWorkbenchContribution2(ChatSetupContribution.ID, ChatSetupContribution, WorkbenchPhase.BlockRestore);
