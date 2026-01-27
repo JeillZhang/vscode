@@ -588,17 +588,6 @@ export class Model implements IRepositoryResolver, IBranchProtectionProviderRegi
 			return;
 		}
 
-		// Repository trust check
-		const result = await workspace.requestResourceTrust({
-			message: l10n.t('You are opening a repository from a location that is not trusted. Do you trust the authors of the files in the repository you are opening?'),
-			uri: Uri.file(repoPath),
-		} satisfies ResourceTrustRequestOptions);
-
-		if (!result) {
-			this.logger.trace(`[Model][openRepository] Repository folder is not trusted: ${repoPath}`);
-			return;
-		}
-
 		try {
 			const { repositoryRoot, unsafeRepositoryMatch } = await this.getRepositoryRoot(repoPath);
 			this.logger.trace(`[Model][openRepository] Repository root for path ${repoPath} is: ${repositoryRoot}`);
@@ -654,8 +643,21 @@ export class Model implements IRepositoryResolver, IBranchProtectionProviderRegi
 				return;
 			}
 
-			// Open repository
+			// Get .git path and real path
 			const [dotGit, repositoryRootRealPath] = await Promise.all([this.git.getRepositoryDotGit(repositoryRoot), this.getRepositoryRootRealPath(repositoryRoot)]);
+
+			// Check that the location of the .git folder is trusted
+			const result = await workspace.requestResourceTrust({
+				message: l10n.t('You are opening a repository from a location that is not trusted. Do you trust the authors of the files in the repository you are opening?'),
+				uri: Uri.file(dotGit.commonPath ?? dotGit.path),
+			} satisfies ResourceTrustRequestOptions);
+
+			if (!result) {
+				this.logger.trace(`[Model][openRepository] Repository folder is not trusted: ${repoPath}`);
+				return;
+			}
+
+			// Open repository
 			const gitRepository = this.git.open(repositoryRoot, repositoryRootRealPath, dotGit, this.logger);
 			const repository = new Repository(gitRepository, this, this, this, this, this, this, this.globalState, this.logger, this.telemetryReporter, this._repositoryCache);
 
