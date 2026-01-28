@@ -188,14 +188,14 @@ configurationRegistry.registerConfiguration({
 		},
 		[ChatConfiguration.AgentsControlClickBehavior]: {
 			type: 'string',
-			enum: [AgentsControlClickBehavior.Default, AgentsControlClickBehavior.TriStateToggle, AgentsControlClickBehavior.Focus],
+			enum: [AgentsControlClickBehavior.Default, AgentsControlClickBehavior.Cycle, AgentsControlClickBehavior.Focus],
 			enumDescriptions: [
 				nls.localize('chat.agentsControl.clickBehavior.default', "Clicking chat icon toggles chat visibility."),
-				nls.localize('chat.agentsControl.clickBehavior.triStateToggle', "Clicking chat icon cycles through: show chat, maximize chat, hide chat. This requires chat to be contained in the secondary sidebar."),
-				nls.localize('chat.agentsControl.clickBehavior.focus', "Clicking chat icon focuses the chat view.")
+				nls.localize('chat.agentsControl.clickBehavior.cycle', "Clicking chat icon cycles through: show chat, maximize chat, hide chat. This requires chat to be contained in the secondary sidebar."),
+				nls.localize('chat.agentsControl.clickBehavior.focus', "Clicking chat icon focuses the chat view and maximizes it if located in the secondary sidebar.")
 			],
 			markdownDescription: nls.localize('chat.agentsControl.clickBehavior', "Controls the behavior when clicking on the chat icon in the command center."),
-			default: product.quality !== 'stable' ? AgentsControlClickBehavior.TriStateToggle : AgentsControlClickBehavior.Default,
+			default: product.quality !== 'stable' ? AgentsControlClickBehavior.Cycle : AgentsControlClickBehavior.Default,
 			tags: ['experimental']
 		},
 		[ChatConfiguration.AgentStatusEnabled]: {
@@ -440,6 +440,11 @@ configurationRegistry.registerConfiguration({
 			default: true,
 			description: nls.localize('chat.viewTitle.enabled', "Show the title of the chat above the chat in the chat view."),
 		},
+		[ChatConfiguration.ChatViewProgressBadgeEnabled]: {
+			type: 'boolean',
+			default: false,
+			description: nls.localize('chat.viewProgressBadge.enabled', "Show a progress badge on the chat view when an agent session is in progress that is opened in that view."),
+		},
 		[ChatConfiguration.NotifyWindowOnResponseReceived]: {
 			type: 'boolean',
 			default: true,
@@ -609,7 +614,7 @@ configurationRegistry.registerConfiguration({
 		[ChatConfiguration.AlternativeToolAction]: {
 			type: 'boolean',
 			description: nls.localize('chat.alternativeToolAction', "When enabled, shows the Configure Tools action in the mode picker dropdown on hover instead of in the chat input."),
-			default: true,
+			default: false,
 			tags: ['experimental'],
 			experiment: {
 				mode: 'auto'
@@ -964,7 +969,7 @@ configurationRegistry.registerConfiguration({
 			default: true,
 			markdownDescription: nls.localize('chat.tools.autoExpandFailures', "When enabled, tool failures are automatically expanded in the chat UI to show error details."),
 		},
-		'chat.disableAIFeatures': {
+		[ChatConfiguration.AIDisabled]: {
 			type: 'boolean',
 			description: nls.localize('chat.disableAIFeatures', "Disable and hide built-in AI features provided by GitHub Copilot, including chat and inline suggestions."),
 			default: false,
