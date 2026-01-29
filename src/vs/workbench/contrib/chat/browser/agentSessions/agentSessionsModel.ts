@@ -25,7 +25,7 @@ import { ILifecycleService } from '../../../../services/lifecycle/common/lifecyc
 import { Extensions, IOutputChannelRegistry, IOutputService } from '../../../../services/output/common/output.js';
 import { ChatSessionStatus as AgentSessionStatus, IChatSessionFileChange, IChatSessionFileChange2, IChatSessionItem, IChatSessionsExtensionPoint, IChatSessionsService } from '../../common/chatSessionsService.js';
 import { IChatWidgetService } from '../chat.js';
-import { AgentSessionProviders, getAgentSessionProvider, getAgentSessionProviderIcon, getAgentSessionProviderName } from './agentSessions.js';
+import { AgentSessionProviders, getAgentSessionProvider, getAgentSessionProviderIcon, getAgentSessionProviderName, isBuiltInAgentSessionProvider } from './agentSessions.js';
 
 //#region Interfaces, Types
 
@@ -486,8 +486,6 @@ export class AgentSessionsModel extends Disposable implements IAgentSessionsMode
 			}
 
 			for (const session of providerSessions) {
-
-				// Icon + Label
 				let icon: ThemeIcon;
 				let providerLabel: string;
 				const agentSessionProvider = getAgentSessionProvider(chatSessionType);
@@ -504,27 +502,6 @@ export class AgentSessionsModel extends Disposable implements IAgentSessionsMode
 					? { files: changes.files, insertions: changes.insertions, deletions: changes.deletions }
 					: changes;
 
-				// Times: it is important to always provide timing information to track
-				// unread/read state for example.
-				// If somehow the provider does not provide any, fallback to last known
-				let { created, lastRequestStarted, lastRequestEnded } = session.timing;
-				if (!created || !lastRequestEnded) {
-					const existing = this._sessions.get(session.resource);
-					if (!created && existing?.timing.created) {
-						created = existing.timing.created;
-					}
-
-					if (!lastRequestEnded && existing?.timing.lastRequestEnded) {
-						lastRequestEnded = existing.timing.lastRequestEnded;
-					}
-
-					if (!lastRequestStarted && existing?.timing.lastRequestStarted) {
-						lastRequestStarted = existing.timing.lastRequestStarted;
-					}
-				}
-
-				this.logger.logIfTrace(`Resolved session ${session.resource.toString()} with timings: created=${created}, lastRequestStarted=${lastRequestStarted}, lastRequestEnded=${lastRequestEnded}`);
-
 				sessions.set(session.resource, this.toAgentSession({
 					providerType: chatSessionType,
 					providerLabel,
@@ -536,15 +513,15 @@ export class AgentSessionsModel extends Disposable implements IAgentSessionsMode
 					tooltip: session.tooltip,
 					status: session.status ?? AgentSessionStatus.Completed,
 					archived: session.archived,
-					timing: { created, lastRequestStarted, lastRequestEnded, },
+					timing: session.timing,
 					changes: normalizedChanges,
 				}));
 			}
 		}
 
 		for (const [, session] of this._sessions) {
-			if (!resolvedProviders.has(session.providerType)) {
-				sessions.set(session.resource, session); // fill in existing sessions for providers that did not resolve
+			if (!resolvedProviders.has(session.providerType) && (isBuiltInAgentSessionProvider(session.providerType) || mapSessionContributionToType.has(session.providerType))) {
+				sessions.set(session.resource, session); // fill in existing sessions for providers that did not resolve if they are known or built-in
 			}
 		}
 
