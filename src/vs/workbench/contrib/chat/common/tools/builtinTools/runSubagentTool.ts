@@ -241,10 +241,11 @@ export class RunSubagentTool extends Disposable implements IToolImpl {
 				variables: { variables: variableSet.asArray() },
 				location: ChatAgentLocation.Chat,
 				subAgentInvocationId: invocation.callId,
-				subAgentName: mode?.name.get() ?? 'subagent',
+				subAgentName: mode?.name.get(),
 				userSelectedModelId: modeModelId,
 				userSelectedTools: modeTools,
 				modeInstructions,
+				parentRequestId: invocation.chatRequestId,
 			};
 
 			// Subscribe to tool invocations to clear markdown parts when a tool is invoked
