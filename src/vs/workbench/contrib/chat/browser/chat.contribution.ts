@@ -321,7 +321,7 @@ configurationRegistry.registerConfiguration({
 		},
 		'chat.notifyWindowOnConfirmation': {
 			type: 'boolean',
-			description: nls.localize('chat.notifyWindowOnConfirmation', "Controls whether a chat session should present the user with an OS notification when a confirmation is needed while the window is not in focus. This includes a window badge as well as notification toast."),
+			description: nls.localize('chat.notifyWindowOnConfirmation', "Controls whether a chat session should present the user with an OS notification when a confirmation or question needs input while the window is not in focus. This includes a window badge as well as notification toast."),
 			default: true,
 		},
 		[ChatConfiguration.AutoReply]: {
@@ -344,8 +344,8 @@ configurationRegistry.registerConfiguration({
 				value: (policyData) => policyData.chat_preview_features_enabled === false ? false : undefined,
 				localization: {
 					description: {
-						key: 'autoApprove2.description',
-						value: nls.localize('autoApprove2.description', 'Global auto approve also known as "YOLO mode" disables manual approval completely for all tools in all workspaces, allowing the agent to act fully autonomously. This is extremely dangerous and is *never* recommended, even containerized environments like Codespaces and Dev Containers have user keys forwarded into the container that could be compromised.\n\nThis feature disables critical security protections and makes it much easier for an attacker to compromise the machine.')
+						key: 'autoApprove3.description',
+						value: nls.localize('autoApprove3.description', 'Global auto approve also known as "YOLO mode" disables manual approval completely for all tools in all workspaces, allowing the agent to act fully autonomously. This is extremely dangerous and is *never* recommended, even containerized environments like Codespaces and Dev Containers have user keys forwarded into the container that could be compromised.\n\nThis feature disables critical security protections and makes it much easier for an attacker to compromise the machine.\n\nNote: This setting only controls tool approval and does not prevent the agent from asking questions. To automatically answer agent questions, use the `#chat.autoReply#` setting.')
 					}
 				},
 			}

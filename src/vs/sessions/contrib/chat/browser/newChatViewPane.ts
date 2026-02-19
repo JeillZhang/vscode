@@ -12,7 +12,6 @@ import { Separator, toAction } from '../../../../base/common/actions.js';
 import { Radio } from '../../../../base/browser/ui/radio/radio.js';
 import { DropdownMenuActionViewItem } from '../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { IObservable, observableValue } from '../../../../base/common/observable.js';
@@ -237,6 +236,7 @@ class NewChatWidget extends Disposable {
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IWorkspacesService private readonly workspacesService: IWorkspacesService,
 		@IStorageService private readonly storageService: IStorageService,
+		@ISessionsManagementService private readonly sessionsManagementService: ISessionsManagementService,
 	) {
 		super();
 		this._contextAttachments = this._register(this.instantiationService.createInstance(NewChatContextAttachments));
@@ -383,8 +383,7 @@ class NewChatWidget extends Disposable {
 		});
 		this._pendingSessionResources.set(target, this._pendingSessionResource);
 
-		// Create the session in the extension so that session options can be stored
-		this.chatSessionsService.getOrCreateChatSession(this._pendingSessionResource, CancellationToken.None)
+		this.sessionsManagementService.createNewPendingSession(this._pendingSessionResource,)
 			.catch((err) => this.logService.trace('Failed to create pending session:', err));
 	}
 
@@ -468,10 +467,10 @@ class NewChatWidget extends Disposable {
 			currentModel: this._currentLanguageModel,
 			setModel: (model: ILanguageModelChatMetadataAndIdentifier) => {
 				this._currentLanguageModel.set(model, undefined);
-				this.languageModelsService.addToRecentlyUsedList(model);
 			},
 			getModels: () => this._getAvailableModels(),
 			canManageModels: () => true,
+			showCuratedModels: () => this._localMode === 'workspace',
 		};
 
 		const pickerOptions: IChatInputPickerOptions = {
@@ -1189,6 +1188,9 @@ export class NewChatViewPane extends ViewPane {
 	override setVisible(visible: boolean): void {
 		super.setVisible(visible);
 		this._widget?.setVisible(visible);
+		if (visible) {
+			this._widget?.focusInput();
+		}
 	}
 }
 
