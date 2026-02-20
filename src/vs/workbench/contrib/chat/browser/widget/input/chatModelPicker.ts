@@ -47,7 +47,7 @@ function getUpdateHoverContent(updateState: StateType): MarkdownString {
 			hoverContent.appendMarkdown(localize('chat.modelPicker.restartUpdateHover', "This model requires a newer version of VS Code. [Restart to Update](command:update.restartToUpdate) to access it."));
 			break;
 		default:
-			hoverContent.appendMarkdown(localize('chat.modelPicker.checkUpdateHover', "This model requires a newer version of VS Code. [Check for Updates](command:update.checkForUpdate) to access it."));
+			hoverContent.appendMarkdown(localize('chat.modelPicker.checkUpdateHover', "This model requires a newer version of VS Code. [Update VS Code](command:update.checkForUpdate) to access it."));
 			break;
 	}
 	return hoverContent;
@@ -252,7 +252,9 @@ export function buildModelPickerItems(
 				return aName.localeCompare(bName);
 			});
 
-			items.push({ kind: ActionListItemKind.Separator });
+			if (items.length > 0) {
+				items.push({ kind: ActionListItemKind.Separator });
+			}
 			for (const item of promotedItems) {
 				if (item.kind === 'available') {
 					items.push(createModelItem(createModelAction(item.model, selectedModelId, onSelect), item.model));
@@ -276,7 +278,9 @@ export function buildModelPickerItems(
 			});
 
 		if (otherModels.length > 0) {
-			items.push({ kind: ActionListItemKind.Separator });
+			if (items.length > 0) {
+				items.push({ kind: ActionListItemKind.Separator });
+			}
 			items.push({
 				item: {
 					id: 'otherModels',
@@ -321,7 +325,7 @@ export function buildModelPickerItems(
 				id: 'manageModels',
 				enabled: true,
 				checked: false,
-				class: 'manage-models-action',
+				class: undefined,
 				tooltip: localize('chat.manageModels.tooltip', "Manage Language Models"),
 				label: localize('chat.manageModels', "Manage Models..."),
 				icon: Codicon.settingsGear,
@@ -332,7 +336,6 @@ export function buildModelPickerItems(
 			group: { title: '', icon: Codicon.settingsGear },
 			hideIcon: false,
 			section: otherModels.length ? ModelPickerSection.Other : undefined,
-			className: 'manage-models-link',
 			showAlways: true,
 		});
 	}
@@ -349,7 +352,7 @@ export function buildModelPickerItems(
 				id: 'moreModels',
 				enabled: true,
 				checked: false,
-				class: 'more-models-action',
+				class: undefined,
 				tooltip: isNewOrAnonymousUser ? localize('chat.moreModels.tooltip', "Add Language Models") : localize('chat.morePremiumModels.tooltip', "Add Premium Models"),
 				label: isNewOrAnonymousUser ? localize('chat.moreModels', "Add Language Models") : localize('chat.morePremiumModels', "Add Premium Models"),
 				icon: Codicon.add,
@@ -362,7 +365,6 @@ export function buildModelPickerItems(
 			label: isNewOrAnonymousUser ? localize('chat.moreModels', "Add Language Models") : localize('chat.morePremiumModels', "Add Premium Models"),
 			group: { title: '', icon: Codicon.add },
 			hideIcon: false,
-			className: 'manage-models-link',
 			showAlways: true,
 		});
 	}
@@ -378,14 +380,15 @@ function createUnavailableModelItem(
 	section?: string,
 ): IActionListItem<IActionWidgetDropdownAction> {
 	let description: string | MarkdownString | undefined;
-	let icon: ThemeIcon = Codicon.blank;
 
 	if (reason === 'upgrade') {
 		description = upgradePlanUrl
 			? new MarkdownString(localize('chat.modelPicker.upgradeLink', "[Upgrade your plan]({0})", upgradePlanUrl), { isTrusted: true })
 			: localize('chat.modelPicker.upgrade', "Upgrade");
+	} else if (reason === 'update') {
+		description = localize('chat.modelPicker.updateDescription', "Update VS Code");
 	} else {
-		icon = Codicon.warning;
+		description = localize('chat.modelPicker.adminDescription', "Contact your admin");
 	}
 
 	let hoverContent: MarkdownString;
@@ -416,7 +419,7 @@ function createUnavailableModelItem(
 		label: entry.label,
 		description,
 		disabled: true,
-		group: { title: '', icon },
+		group: { title: '' },
 		hideIcon: false,
 		section,
 		hover: { content: hoverContent },
@@ -550,6 +553,7 @@ export class ModelPickerWidget extends Disposable {
 
 		const listOptions = {
 			showFilter: models.length >= 10,
+			filterPlaceholder: localize('chat.modelPicker.search', "Search models"),
 			collapsedByDefault: new Set([ModelPickerSection.Other]),
 			minWidth: 300,
 		};
@@ -644,13 +648,6 @@ function getModelHoverContent(model: ILanguageModelChatMetadataAndIdentifier): M
 	const isAuto = model.metadata.id === 'auto' && model.metadata.vendor === 'copilot';
 	const markdown = new MarkdownString('', { isTrusted: true, supportThemeIcons: true });
 	markdown.appendMarkdown(`**${model.metadata.name}**`);
-	if (!isAuto) {
-		if (model.metadata.id !== model.metadata.version) {
-			markdown.appendMarkdown(`&nbsp;<span style="background-color:#8080802B;">&nbsp;_${model.metadata.id}@${model.metadata.version}_&nbsp;</span>`);
-		} else {
-			markdown.appendMarkdown(`&nbsp;<span style="background-color:#8080802B;">&nbsp;_${model.metadata.id}_&nbsp;</span>`);
-		}
-	}
 	markdown.appendText(`\n`);
 
 	if (model.metadata.statusIcon && model.metadata.tooltip) {
@@ -662,9 +659,7 @@ function getModelHoverContent(model: ILanguageModelChatMetadataAndIdentifier): M
 	}
 
 	if (model.metadata.multiplier) {
-		markdown.appendMarkdown(`${localize('models.cost', 'Multiplier')}: `);
-		markdown.appendMarkdown(model.metadata.multiplier);
-		markdown.appendMarkdown(` - ${localize('multiplier.tooltip', "Every chat message counts {0} towards your premium model request quota", model.metadata.multiplier)}`);
+		markdown.appendMarkdown(`${localize('multiplier.tooltip', "Each chat message counts {0} toward your premium request quota", model.metadata.multiplier)}`);
 		markdown.appendText(`\n`);
 	}
 
