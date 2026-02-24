@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
@@ -12,9 +12,12 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { IWorkbenchLayoutService } from '../../../../workbench/services/layout/browser/layoutService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../workbench/common/contributions.js';
 import { bindContextKey } from '../../../../platform/observable/common/platformObservableUtils.js';
+import { autorun } from '../../../../base/common/observable.js';
+import { IExtensionService } from '../../../../workbench/services/extensions/common/extensions.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
-import { localize2 } from '../../../../nls.js';
 import { ISessionsWelcomeService } from '../common/sessionsWelcomeService.js';
 import { SessionsWelcomeService } from './sessionsWelcomeService.js';
 import { SessionsWelcomeOverlay } from './sessionsWelcomeOverlay.js';
@@ -31,6 +34,9 @@ class SessionsWelcomeContribution extends Disposable implements IWorkbenchContri
 
 	static readonly ID = 'workbench.contrib.sessionsWelcome';
 
+	private readonly overlayRef = this._register(new MutableDisposable<DisposableStore>());
+	private readonly watcherRef = this._register(new MutableDisposable());
+
 	constructor(
 		@ISessionsWelcomeService private readonly welcomeService: ISessionsWelcomeService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
@@ -38,6 +44,8 @@ class SessionsWelcomeContribution extends Disposable implements IWorkbenchContri
 		@IProductService private readonly productService: IProductService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IExtensionService private readonly extensionService: IExtensionService,
+		@ILogService private readonly logService: ILogService,
 	) {
 		super();
 
@@ -76,7 +84,7 @@ class SessionsWelcomeContribution extends Disposable implements IWorkbenchContri
 
 		// Step 2: Sign in with GitHub
 		const signInStep = this.instantiationService.createInstance(GitHubSignInStep);
-		stepStore.add(signInStep.disposable);
+		stepStore.add(signInStep);
 		stepStore.add(this.welcomeService.registerStep(signInStep));
 	}
 
@@ -89,23 +97,73 @@ class SessionsWelcomeContribution extends Disposable implements IWorkbenchContri
 		// don't re-show the overlay just because sign-in hasn't resolved.
 		// If everything is already satisfied, skip.
 		if (this.welcomeService.isComplete.get()) {
+			this.watchForSignOutOrTokenExpiry();
 			return;
 		}
 
 		this.showOverlay();
 	}
 
+	/**
+	 * After the welcome flow has been completed once, watch for sign-out
+	 * or token expiry and re-show the overlay when that happens.
+	 */
+	private watchForSignOutOrTokenExpiry(): void {
+		let wasComplete = this.welcomeService.isComplete.get();
+		this.watcherRef.value = autorun(reader => {
+			const isComplete = this.welcomeService.isComplete.read(reader);
+			if (wasComplete && !isComplete) {
+				this.showOverlay();
+			}
+			wasComplete = isComplete;
+		});
+	}
+
 	private showOverlay(): void {
-		const overlay = this.instantiationService.createInstance(
+		if (this.overlayRef.value) {
+			return; // overlay already shown
+		}
+
+		this.overlayRef.value = new DisposableStore();
+
+		const overlay = this.overlayRef.value.add(this.instantiationService.createInstance(
 			SessionsWelcomeOverlay,
 			this.layoutService.mainContainer,
-		);
-		this._register(overlay);
+		));
 
-		// Mark welcome as complete once the overlay is dismissed (all steps satisfied)
-		overlay.onDidDismiss(() => {
+		// When all steps are satisfied, restart the extension host (so the
+		// chat extension picks up the auth session cleanly) then dismiss.
+		this.overlayRef.value.add(overlay.onDidDismiss(() => {
+			this.overlayRef.clear();
+			this.watchForSignOutOrTokenExpiry();
+		}));
+
+		this.overlayRef.value.add(autorun(reader => {
+			const isComplete = this.welcomeService.isComplete.read(reader);
+			if (!isComplete) {
+				return;
+			}
+
 			this.storageService.store(WELCOME_COMPLETE_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
-		});
+			this.restartExtensionHostThenDismiss(overlay);
+		}));
+	}
+
+	/**
+	 * After the welcome flow completes (extension installed + user signed in),
+	 * restart the extension host so the chat extension picks up the new auth
+	 * session cleanly, then dismiss the overlay. The overlay stays visible
+	 * during the restart so the user doesn't see a broken intermediate state.
+	 */
+	private async restartExtensionHostThenDismiss(overlay: SessionsWelcomeOverlay): Promise<void> {
+		this.logService.info('[sessions welcome] Restarting extension host after welcome completion');
+		const stopped = await this.extensionService.stopExtensionHosts(
+			localize('sessionsWelcome.restart', "Completing sessions setup")
+		);
+		if (stopped) {
+			await this.extensionService.startExtensionHosts();
+		}
+		overlay.dismiss();
 	}
 }
 
