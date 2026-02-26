@@ -53,6 +53,18 @@ export interface IAICustomizationWorkspaceService {
 	readonly visibleStorageSources: readonly PromptsStorage[];
 
 	/**
+	 * Returns the visible storage sources for a specific customization type.
+	 * Allows per-type overrides (e.g., hooks may only show workspace sources).
+	 */
+	getVisibleStorageSources(type: PromptsType): readonly PromptsStorage[];
+
+	/**
+	 * URI roots to exclude from user-level file listings.
+	 * Files under these roots are hidden from the customization list.
+	 */
+	readonly excludedUserFileRoots: readonly URI[];
+
+	/**
 	 * Whether the primary creation action should create a file directly
 	 */
 	readonly preferManualCreation: boolean;

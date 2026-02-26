@@ -14,7 +14,7 @@ import { PromptsType } from '../../common/promptSyntax/promptTypes.js';
 import {
 	GENERATE_AGENT_COMMAND_ID,
 	GENERATE_HOOK_COMMAND_ID,
-	GENERATE_INSTRUCTION_COMMAND_ID,
+	GENERATE_ON_DEMAND_INSTRUCTIONS_COMMAND_ID,
 	GENERATE_PROMPT_COMMAND_ID,
 	GENERATE_SKILL_COMMAND_ID,
 } from '../actions/chatActions.js';
@@ -60,7 +60,13 @@ class AICustomizationWorkspaceService implements IAICustomizationWorkspaceServic
 		PromptsStorage.plugin,
 	];
 
+	getVisibleStorageSources(_type: PromptsType): readonly PromptsStorage[] {
+		return this.visibleStorageSources;
+	}
+
 	readonly preferManualCreation = false;
+
+	readonly excludedUserFileRoots: readonly URI[] = [];
 
 	async commitFiles(_projectRoot: URI, _fileUris: URI[]): Promise<void> {
 		// No-op in core VS Code.
@@ -70,7 +76,7 @@ class AICustomizationWorkspaceService implements IAICustomizationWorkspaceServic
 		const commandIds: Partial<Record<PromptsType, string>> = {
 			[PromptsType.agent]: GENERATE_AGENT_COMMAND_ID,
 			[PromptsType.skill]: GENERATE_SKILL_COMMAND_ID,
-			[PromptsType.instructions]: GENERATE_INSTRUCTION_COMMAND_ID,
+			[PromptsType.instructions]: GENERATE_ON_DEMAND_INSTRUCTIONS_COMMAND_ID,
 			[PromptsType.prompt]: GENERATE_PROMPT_COMMAND_ID,
 			[PromptsType.hook]: GENERATE_HOOK_COMMAND_ID,
 		};
