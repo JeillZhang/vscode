@@ -94,6 +94,11 @@ export interface IChatSessionsExtensionPoint {
 	 */
 	readonly customAgentTarget?: Target;
 	readonly requiresCustomModels?: boolean;
+	/**
+	 * Decides whether to automatically attach instruction files to chat requests
+	 * for this session type. Defaults to false when not specified.
+	 */
+	readonly autoAttachReferences?: boolean;
 }
 
 export interface IChatSessionItem {
@@ -251,6 +256,7 @@ export interface IChatSessionsService {
 	registerChatSessionContribution(contribution: IChatSessionsExtensionPoint): IDisposable;
 
 	registerChatSessionItemController(chatSessionType: string, controller: IChatSessionItemController): IDisposable;
+	getRegisteredChatSessionItemProviders(): readonly string[];
 	activateChatSessionItemProvider(chatSessionType: string): Promise<void>;
 
 	/**

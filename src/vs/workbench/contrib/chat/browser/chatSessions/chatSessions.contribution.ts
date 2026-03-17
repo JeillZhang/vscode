@@ -216,6 +216,11 @@ const extensionPoint = ExtensionsRegistry.registerExtensionPoint<IChatSessionsEx
 					description: localize('chatSessionsExtPoint.requiresCustomModels', 'When set, the chat session will show a filtered model picker that prefers custom models. This enables the use of standard model picker with contributed sessions.'),
 					type: 'boolean',
 					default: false
+				},
+				autoAttachReferences: {
+					description: localize('chatSessionsExtPoint.autoAttachReferences', 'Whether to automatically attach instruction files to chat requests for this session type.'),
+					type: 'boolean',
+					default: false
 				}
 			},
 			required: ['type', 'name', 'displayName', 'description'],
@@ -890,15 +895,24 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 		await this.tryActivateControllers(providersToResolve);
 
 		await Promise.all(Array.from(this._itemControllers).map(async ([chatSessionType, controllerEntry]) => {
+			const resolvedType = this._resolveToPrimaryType(chatSessionType) ?? chatSessionType;
+			if (providersToResolve && !providersToResolve.includes(resolvedType)) {
+				return; // skip: not considered for resolving
+			}
+
 			try {
 				await controllerEntry.controller.refresh(token);
 			} catch (err) {
 				if (!isCancellationError(err)) {
 					// Log error but continue with other providers
-					this._logService.error(`[ChatSessionsService] Failed to resolve sessions for provider ${chatSessionType}`, err);
+					this._logService.error(`[ChatSessionsService] Failed to resolve sessions for provider ${resolvedType}`, err);
 				}
 			}
 		}));
+	}
+
+	getRegisteredChatSessionItemProviders(): readonly string[] {
+		return [...new Set(Array.from(this._itemControllers.keys()).map(key => this._resolveToPrimaryType(key) ?? key))];
 	}
 
 	registerChatSessionItemController(chatSessionType: string, controller: IChatSessionItemController): IDisposable {
