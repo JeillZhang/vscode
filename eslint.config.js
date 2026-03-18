@@ -1457,7 +1457,6 @@ export default tseslint.config(
 					'when': 'hasNode',
 					'allow': [
 						'@github/copilot-sdk',
-						'@anthropic-ai/sandbox-runtime',
 						'@parcel/watcher',
 						'@vscode/sqlite3',
 						'@vscode/vscode-languagedetection',
@@ -1981,7 +1980,7 @@ export default tseslint.config(
 					'target': 'src/vs/sessions/sessions.web.main.ts',
 					'layer': 'browser',
 					'restrictions': [
-						'vs/base/*/~',
+						'vs/base/~',
 						'vs/base/parts/*/~',
 						'vs/platform/*/~',
 						'vs/editor/~',
