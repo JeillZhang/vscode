@@ -27,7 +27,7 @@ import { StopWatch } from '../../../util/vs/base/common/stopwatch';
 import { hasKey } from '../../../util/vs/base/common/types';
 import { EXTENSION_ID } from '../../common/constants';
 import { GitBranchNameGenerator } from '../../prompt/node/gitBranch';
-import { IChatSessionMetadataStore } from '../common/chatSessionMetadataStore';
+import { IChatSessionMetadataStore, RepositoryProperties } from '../common/chatSessionMetadataStore';
 import { IChatSessionWorkspaceFolderService } from '../common/chatSessionWorkspaceFolderService';
 import { IChatSessionWorktreeService } from '../common/chatSessionWorktreeService';
 import { IChatFolderMruService, IFolderRepositoryManager, IsolationMode } from '../common/folderRepositoryManager';
@@ -522,7 +522,7 @@ export class CopilotCLIChatSessionParticipant extends Disposable {
 		private readonly sessionItemProvider: ICopilotCLIChatSessionItemProvider,
 		private readonly promptResolver: CopilotCLIPromptResolver,
 		private readonly cloudSessionProvider: CopilotCloudSessionsProvider | undefined,
-		private readonly branchNameGenerator: GitBranchNameGenerator,
+		private readonly branchNameGenerator: GitBranchNameGenerator | undefined,
 		@IGitService private readonly gitService: IGitService,
 		@ICopilotCLISessionService private readonly sessionService: ICopilotCLISessionService,
 		@IChatSessionWorktreeService private readonly copilotCLIWorktreeManagerService: IChatSessionWorktreeService,
@@ -694,7 +694,7 @@ export class CopilotCLIChatSessionParticipant extends Disposable {
 				history: [requestTurn],
 				yieldRequested: false,
 			};
-			const branchNamePromise = isNewSession && request.prompt ? this.branchNameGenerator.generateBranchName(fakeContext, token) : Promise.resolve(undefined);
+			const branchNamePromise = (isNewSession && request.prompt && this.branchNameGenerator) ? this.branchNameGenerator.generateBranchName(fakeContext, token) : Promise.resolve(undefined);
 
 			const sessionResult = await this.getOrCreateSession(request, chatSessionContext, stream, { branchName: branchNamePromise }, disposables, token);
 			({ session } = sessionResult);
@@ -1360,7 +1360,14 @@ export function registerCLIChatCommands(
 			return;
 		}
 
-		copilotCliWorkspaceSession.trackSessionWorkspaceFolder(sessionId, workspaceFolder.fsPath, repository.headBranchName ? { repositoryPath: repository.rootUri.fsPath, branchName: repository.headBranchName } : undefined);
+		const repositoryProperties = repository.headBranchName
+			? {
+				repositoryPath: repository.rootUri.fsPath,
+				branchName: repository.headBranchName
+			} satisfies RepositoryProperties
+			: undefined;
+
+		await copilotCliWorkspaceSession.trackSessionWorkspaceFolder(sessionId, workspaceFolder.fsPath, repositoryProperties);
 		copilotCliWorkspaceSession.clearWorkspaceChanges(sessionId);
 
 		await contentProvider.refreshSession({ reason: 'update', sessionId });
