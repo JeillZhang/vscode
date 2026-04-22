@@ -50,6 +50,7 @@ import './browser/parts/editor/editorParts.js';
 import './browser/parts/paneCompositePartService.js';
 import './browser/parts/banner/bannerPart.js';
 import './browser/parts/statusbar/statusbarPart.js';
+import './browser/parts/titlebar/menubar.contribution.js';
 
 //#endregion
 
@@ -410,6 +411,7 @@ import './contrib/codeActions/browser/codeActions.contribution.js';
 
 // Timeline
 import './contrib/timeline/browser/timeline.contribution.js';
+import './contrib/timeline/browser/timeline.service.contribution.js';
 
 // Local History
 import './contrib/localHistory/browser/localHistory.contribution.js';

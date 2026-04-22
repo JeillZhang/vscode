@@ -383,7 +383,7 @@ import '../workbench/contrib/remoteCodingAgents/browser/remoteCodingAgents.contr
 import '../workbench/contrib/codeActions/browser/codeActions.contribution.js';
 
 // Timeline
-import '../workbench/contrib/timeline/browser/timeline.contribution.js';
+import '../workbench/contrib/timeline/browser/timeline.service.contribution.js';
 
 // Local History
 import '../workbench/contrib/localHistory/browser/localHistory.contribution.js';
@@ -427,6 +427,7 @@ import '../workbench/contrib/opener/browser/opener.contribution.js';
 
 import './browser/paneCompositePartService.js';
 import './browser/parts/editorParts.js';
+import './browser/parts/menubar.contribution.js';
 import './browser/layoutActions.js';
 
 import './contrib/accountMenu/browser/account.contribution.js';
