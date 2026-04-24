@@ -4018,6 +4018,15 @@
 						"tags": [
 							"experimental"
 						]
+					},
+					"github.copilot.chat.localIndex.enabled": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%github.copilot.config.localIndex.enabled%",
+						"tags": [
+							"experimental",
+							"onExp"
+						]
 					}
 				}
 			},
@@ -4266,16 +4275,6 @@
 						"tags": [
 							"advanced",
 							"experimental"
-						]
-					},
-					"github.copilot.chat.inlineChat.selectionRatioThreshold": {
-						"type": "number",
-						"default": 0,
-						"markdownDescription": "%github.copilot.config.inlineChat.selectionRatioThreshold%",
-						"tags": [
-							"advanced",
-							"experimental",
-							"onExp"
 						]
 					},
 					"github.copilot.chat.inlineChat.reasoningEffort": {
