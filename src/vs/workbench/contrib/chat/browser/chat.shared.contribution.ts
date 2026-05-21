@@ -986,7 +986,7 @@ configurationRegistry.registerConfiguration({
 		[AgentHostEnabledSettingId]: {
 			type: 'boolean',
 			description: nls.localize('chat.agentHost.enabled', "When enabled, some agents run in a separate agent host process."),
-			default: product.quality !== 'stable',
+			default: false,
 			tags: ['experimental', 'advanced'],
 		},
 		[AgentHostClaudeAgentSdkPathSettingId]: {
@@ -1641,6 +1641,7 @@ configurationRegistry.registerConfiguration({
 			type: 'boolean',
 			description: nls.localize('chat.allowAnonymousAccess', "Controls whether anonymous access is allowed in chat."),
 			default: false,
+			included: false,
 			tags: ['experimental'],
 			experiment: {
 				mode: 'auto'
