@@ -148,7 +148,7 @@ export class VisibleSessions extends Disposable {
 	private readonly _activeSession = observableValue<IActiveSession | undefined>(this, undefined);
 	readonly activeSession: IObservable<IActiveSession | undefined> = this._activeSession;
 
-	private readonly _visibleSessions = observableValue<readonly (IActiveSession | undefined)[]>(this, []);
+	private readonly _visibleSessions = observableValue<readonly (IActiveSession | undefined)[]>(this, [undefined]);
 	readonly visibleSessions: IObservable<readonly (IActiveSession | undefined)[]> = this._visibleSessions;
 
 	private readonly _wrappers = this._register(new DisposableMap<string, VisibleSession>());
@@ -302,8 +302,10 @@ export class VisibleSessions extends Disposable {
 	 * slot when toggled.
 	 * - If the session is not currently visible, it is appended at the end as
 	 *   sticky.
+	 *
+	 * Returns the session's stickiness state after the toggle.
 	 */
-	toggleStickiness(session: ISession): void {
+	toggleStickiness(session: ISession): boolean {
 		const id = session.sessionId;
 		if (!this._visibleList.includes(id)) {
 			this._stickyIds.add(id);
@@ -319,6 +321,7 @@ export class VisibleSessions extends Disposable {
 			}
 		}
 		this._refresh(undefined);
+		return this._stickyIds.has(id);
 	}
 
 	/**
