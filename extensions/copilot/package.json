@@ -4044,6 +4044,15 @@
               "onExp"
             ]
           },
+          "github.copilot.chat.gemini3GetChangedFilesTool.enabled": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "%github.copilot.config.gemini3GetChangedFilesTool.enabled%",
+            "tags": [
+              "experimental",
+              "onExp"
+            ]
+          },
           "github.copilot.chat.gpt55ReadFileTool.enabled": {
             "type": "boolean",
             "default": true,
@@ -4614,6 +4623,26 @@
               "onExp"
             ]
           },
+          "github.copilot.chat.agent.longToolCallCachePreservation.enabled": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "%github.copilot.config.agent.longToolCallCachePreservation.enabled%",
+            "tags": [
+              "advanced",
+              "experimental",
+              "onExp"
+            ]
+          },
+          "github.copilot.chat.agent.longToolCallCachePreservation.maxProbes": {
+            "type": "number",
+            "default": 1,
+            "markdownDescription": "%github.copilot.config.agent.longToolCallCachePreservation.maxProbes%",
+            "tags": [
+              "advanced",
+              "experimental",
+              "onExp"
+            ]
+          },
           "github.copilot.chat.agent.largeToolResultsToDisk.enabled": {
             "type": "boolean",
             "default": true,
@@ -4694,7 +4723,7 @@
           },
           "github.copilot.chat.executionSubagent.model": {
             "type": "string",
-            "default": "",
+            "default": "gemini-3-flash",
             "markdownDescription": "%github.copilot.config.executionSubagent.model%",
             "tags": [
               "advanced",
