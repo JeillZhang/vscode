@@ -5,9 +5,8 @@
 
 import { CopilotClient, RuntimeConnection, type CopilotClientOptions } from '@github/copilot-sdk';
 import * as fs from 'fs/promises';
-import { Limiter, SequencerByKey, Throttler } from '../../../../base/common/async.js';
-import { CancellationTokenSource, type CancellationToken } from '../../../../base/common/cancellation.js';
-import { rgDiskPath } from '../../../../base/node/ripgrep.js';
+import { CancelablePromise, createCancelablePromise, Delayer, Limiter, SequencerByKey } from '../../../../base/common/async.js';
+import { type CancellationToken } from '../../../../base/common/cancellation.js';
 import { CancellationError } from '../../../../base/common/errors.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { appendEscapedMarkdownInlineCode } from '../../../../base/common/htmlContent.js';
@@ -20,36 +19,38 @@ import { basename, delimiter, dirname } from '../../../../base/common/path.js';
 import { basename as resourceBasename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
+import { rgDiskPath } from '../../../../base/node/ripgrep.js';
 import { localize } from '../../../../nls.js';
-import { IParsedPlugin, parseAgentFile, parseRuleFile, parsePlugin, parseSkillFile, IParsedAgent, IParsedSkill, IParsedRule } from '../../../agentPlugins/common/pluginParsers.js';
+import { IParsedAgent, IParsedPlugin, IParsedRule, IParsedSkill, parseAgentFile, parsePlugin, parseRuleFile, parseSkillFile } from '../../../agentPlugins/common/pluginParsers.js';
 import { IFileService } from '../../../files/common/files.js';
 import { IInstantiationService } from '../../../instantiation/common/instantiation.js';
 import { ILogService, LogLevel } from '../../../log/common/log.js';
+import { IAgentHostCheckpointService } from '../../common/agentHostCheckpointService.js';
 import { AgentHostConfigKey, agentHostCustomizationConfigSchema, toContainerCustomization } from '../../common/agentHostCustomizationConfig.js';
 import { AgentHostSessionSyncEnabledConfigKey, AutoApproveLevel, ISchemaProperty, SessionMode, createSchema, platformRootSchema, platformSessionSchema, schemaProperty } from '../../common/agentHostSchema.js';
 import { IAgentPluginManager, ISyncedCustomization } from '../../common/agentPluginManager.js';
-import { AgentSession, AgentSignal, GITHUB_COPILOT_PROTECTED_RESOURCE, IAgent, IAgentCreateSessionConfig, IAgentCreateSessionResult, IAgentDescriptor, IAgentMaterializeSessionEvent, IAgentModelInfo, IAgentResolveSessionConfigParams, IAgentSessionConfigCompletionsParams, IAgentSessionMetadata, IAgentSessionProjectInfo } from '../../common/agentService.js';
+import { AgentSession, AgentSignal, GITHUB_COPILOT_PROTECTED_RESOURCE, IAgent, IAgentCreateSessionConfig, IAgentCreateSessionResult, IAgentDescriptor, IAgentMaterializeSessionEvent, IAgentModelInfo, IAgentResolveSessionConfigParams, IAgentSessionConfigCompletionsParams, IAgentSessionMetadata, IAgentSessionProjectInfo, IMcpNotification } from '../../common/agentService.js';
+import { getEffectiveAgents } from '../../common/customAgents.js';
+import { IAgentHostOTelService } from '../../common/otel/agentHostOTelService.js';
 import { SessionConfigKey } from '../../common/sessionConfigKeys.js';
 import { ISessionDataService, SESSION_DB_FILENAME } from '../../common/sessionDataService.js';
 import type { ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../../common/state/protocol/commands.js';
-import { ProtectedResourceMetadata, type ChildCustomizationType, type ConfigSchema, type ModelSelection, type AgentSelection, type ToolDefinition } from '../../common/state/protocol/state.js';
+import { ProtectedResourceMetadata, type AgentSelection, type ChildCustomizationType, type ConfigSchema, type ModelSelection, type ToolDefinition } from '../../common/state/protocol/state.js';
 import { ActionType, type SessionAction } from '../../common/state/sessionActions.js';
 import { AHP_AUTH_REQUIRED, ProtocolError } from '../../common/state/sessionProtocol.js';
 import { AgentCustomization, CustomizationLoadStatus, CustomizationType, ResponsePartKind, RuleCustomization, SessionInputResponseKind, SkillCustomization, customizationId, parseSubagentSessionUri, type ChildCustomization, type ClientPluginCustomization, type Customization, type DirectoryCustomization, type MessageAttachment, type PendingMessage, type PluginCustomization, type PolicyState, type ResponsePart, type SessionInputAnswer, type ToolCallResult, type Turn } from '../../common/state/sessionState.js';
+import { ActiveClientState } from '../activeClientState.js';
 import { IAgentConfigurationService } from '../agentConfigurationService.js';
-import { IAgentHostOTelService } from '../../common/otel/agentHostOTelService.js';
 import { IAgentHostCompletions } from '../agentHostCompletions.js';
 import { IAgentHostGitService, META_DIFF_BASE_BRANCH } from '../agentHostGitService.js';
-import { IAgentHostCheckpointService } from '../../common/agentHostCheckpointService.js';
+import { findMcpChildId } from '../shared/mcpCustomizationController.js';
 import { CopilotAgentSession, type CopilotSdkMode } from './copilotAgentSession.js';
 import { ICopilotSessionContext, projectFromCopilotContext } from './copilotGitProject.js';
 import { parsedPluginsEqual, toChildCustomizations } from './copilotPluginConverters.js';
-import { ShellManager } from './copilotShellTools.js';
 import { CopilotSessionLauncher, ThinkingLevelConfigKey, getCopilotReasoningEffort, type CopilotSessionLaunchPlan, type IActiveClientSnapshot } from './copilotSessionLauncher.js';
-import { ActiveClientState } from '../activeClientState.js';
-import { areDiscoveredDirectoriesEqual, DiscoveredType, SessionCustomizationDiscovery, type IDiscoveredDirectory } from './sessionCustomizationDiscovery.js';
+import { ShellManager } from './copilotShellTools.js';
 import { CopilotSlashCommandCompletionProvider } from './copilotSlashCommandCompletionProvider.js';
-import { getEffectiveAgents } from '../../common/customAgents.js';
+import { DiscoveredType, SessionCustomizationDiscovery, areDiscoveredDirectoriesEqual, type IDiscoveredDirectory } from './sessionCustomizationDiscovery.js';
 
 /**
  * Maps a VS Code {@link LogLevel} to the Copilot CLI runtime's `logLevel`
@@ -245,6 +246,13 @@ export class CopilotAgent extends Disposable implements IAgent {
 	readonly onDidSessionProgress = this._onDidSessionProgress.event;
 	private readonly _onDidMaterializeSession = this._register(new Emitter<IAgentMaterializeSessionEvent>());
 	readonly onDidMaterializeSession = this._onDidMaterializeSession.event;
+	/**
+	 * Per-session MCP notifications, fanned in from every active
+	 * {@link CopilotAgentSession}. Each session contributes a single
+	 * subscription, disposed alongside the session.
+	 */
+	private readonly _onMcpNotification = this._register(new Emitter<IMcpNotification>());
+	readonly onMcpNotification = this._onMcpNotification.event;
 	private readonly _models = observableValue<readonly IAgentModelInfo[]>(this, []);
 	readonly models = this._models;
 
@@ -252,6 +260,12 @@ export class CopilotAgent extends Disposable implements IAgent {
 	private _clientStarting: Promise<CopilotClient> | undefined;
 	private _githubToken: string | undefined;
 	private readonly _sessions = this._register(new DisposableMap<string, CopilotAgentSession>());
+	/**
+	 * Per-session MCP-notification subscriptions, keyed by `sessionId`.
+	 * Disposed in lockstep with the matching {@link _sessions} entry so
+	 * the fan-in does not leak listeners as sessions come and go.
+	 */
+	private readonly _mcpNotificationSubs = this._register(new DisposableMap<string>());
 	/**
 	 * In-flight {@link _resumeSession} promises, keyed by sessionId. Used to
 	 * deduplicate concurrent resume requests for the same session so that
@@ -352,6 +366,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 		if (this._client) {
 			this._logService.info(`[Copilot] Startup config changed (${changed}), restarting CopilotClient`);
 			this._sessions.clearAndDisposeAll();
+			this._mcpNotificationSubs.clearAndDisposeAll();
 			await this._stopClient();
 		}
 	}
@@ -381,7 +396,23 @@ export class CopilotAgent extends Disposable implements IAgent {
 	async getSessionCustomizations(session: URI): Promise<readonly Customization[]> {
 		const directory = await this._getSessionCustomizationDirectory(session);
 		const activeClient = this._getOrCreateActiveClient(session, directory);
-		return activeClient.pluginController.getCustomizationsSettled();
+		const fromPlugins = await activeClient.pluginController.getCustomizationsSettled();
+		const sessionId = AgentSession.id(session);
+		const entry = this._sessions.get(sessionId);
+		const topLevelMcp = entry?.topLevelMcpCustomizations() ?? [];
+		if (topLevelMcp.length === 0) {
+			return fromPlugins;
+		}
+		return [...fromPlugins, ...topLevelMcp];
+	}
+
+	async handleMcpRequest(session: URI, serverName: string, method: string, params: Record<string, unknown> | undefined): Promise<unknown> {
+		const sessionId = AgentSession.id(session);
+		const entry = this._sessions.get(sessionId);
+		if (!entry) {
+			throw new Error(`Method not found: no active session ${sessionId}`);
+		}
+		return entry.handleMcpRequest(serverName, method, params);
 	}
 
 	private async _getSessionCustomizationDirectory(session: URI): Promise<URI | undefined> {
@@ -514,9 +545,6 @@ export class CopilotAgent extends Disposable implements IAgent {
 			}
 			env['COPILOT_CLI_RUN_AS_NODE'] = '1';
 			env['USE_BUILTIN_RIPGREP'] = 'false';
-
-			// Identify VS Code's agent host traffic in CAPI
-			env['GITHUB_COPILOT_INTEGRATION_ID'] = 'vscode-agent-host';
 
 			// Enable the rubber duck critic subagent in the CLI when the agent host
 			// config opts in. `RUBBER_DUCK_AGENT` is the SDK's required interface for
@@ -971,7 +999,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 				githubToken: this._githubToken,
 				model: provisional.model,
 			};
-			agentSession = this._createAgentSession(launchPlan, customizationDirectory);
+			agentSession = this._createAgentSession(launchPlan, customizationDirectory, activeClient);
 			await agentSession.initializeSession();
 			this._registerInitializedSession(sessionId, agentSession);
 		} catch (error) {
@@ -1501,7 +1529,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 	 * {@link _resumeSession} for the same id cannot dispose this entry mid-init
 	 * via {@link DisposableMap.set}.
 	 */
-	private _createAgentSession(launchPlan: CopilotSessionLaunchPlan, customizationDirectory: URI | undefined): CopilotAgentSession {
+	private _createAgentSession(launchPlan: CopilotSessionLaunchPlan, customizationDirectory: URI | undefined, activeClient: ActiveClient): CopilotAgentSession {
 		const sessionUri = AgentSession.uri(this.id, launchPlan.sessionId);
 
 		const agentSession = this._instantiationService.createInstance(
@@ -1517,8 +1545,11 @@ export class CopilotAgent extends Disposable implements IAgent {
 				customizationDirectory,
 				clientSnapshot: launchPlan.snapshot,
 				activeClientState: launchPlan.activeClientState,
+				resolveMcpChildId: name => findMcpChildId(activeClient.pluginController.getCustomizations(), name),
 			},
 		);
+
+		this._mcpNotificationSubs.set(launchPlan.sessionId, agentSession.onMcpNotification(n => this._onMcpNotification.fire(n)));
 
 		return agentSession;
 	}
@@ -1564,6 +1595,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 			}
 		}
 		this._sessions.deleteAndDispose(sessionId);
+		this._mcpNotificationSubs.deleteAndDispose(sessionId);
 		this._activeClients.get(sessionUri)?.dispose();
 		this._activeClients.delete(sessionUri);
 		await this._removeCreatedWorktree(sessionId);
@@ -1623,7 +1655,7 @@ export class CopilotAgent extends Disposable implements IAgent {
 			},
 		};
 
-		const agentSession = this._createAgentSession(launchPlan, customizationDirectory);
+		const agentSession = this._createAgentSession(launchPlan, customizationDirectory, activeClient);
 		try {
 			await agentSession.initializeSession();
 		} catch (err) {
@@ -1901,6 +1933,8 @@ interface IResolvedCustomization {
 	readonly input?: ClientPluginCustomization;
 }
 
+const REFRESH_DEBOUNCE_MS = 100;
+
 /**
  * A per-working-directory bundle of customizations the agent host
  * discovered itself from disk (workspace + user-home conventions).
@@ -1917,12 +1951,13 @@ interface IResolvedCustomization {
  */
 class SessionDiscoveredEntry extends Disposable {
 
+
 	private readonly _discovery: SessionCustomizationDiscovery;
-	private readonly _refreshThrottler = this._register(new Throttler());
-	private _refreshCancellationSource: CancellationTokenSource | undefined;
+	private readonly _refreshDelayer = this._register(new Delayer<void>(REFRESH_DEBOUNCE_MS));
+	private _refreshPromise: CancelablePromise<void> | null = null;
+	private _pendingRefreshNotify = false;
 
 	private _customizations: readonly DirectoryCustomization[] = [];
-	private _plugin: IParsedPlugin | undefined;
 	private _directories: readonly IDiscoveredDirectory[] | undefined;
 	private _settled: Promise<void>;
 	private readonly _fileService: IFileService;
@@ -1944,8 +1979,8 @@ class SessionDiscoveredEntry extends Disposable {
 	}
 
 	override dispose(): void {
-		this._refreshCancellationSource?.dispose(true);
-		this._refreshCancellationSource = undefined;
+		this._refreshPromise?.cancel();
+		this._refreshPromise = null;
 		super.dispose();
 	}
 
@@ -1957,32 +1992,41 @@ class SessionDiscoveredEntry extends Disposable {
 		return this._customizations;
 	}
 
-	currentPlugin(): IParsedPlugin | undefined {
-		return this._plugin;
-	}
-
 	private _queueRefresh(notify: boolean): Promise<void> {
-		this._refreshCancellationSource?.cancel();
-		return this._refreshThrottler.queue(async throttlerToken => {
-			const refreshCancellationSource = new CancellationTokenSource(throttlerToken);
-			this._refreshCancellationSource = refreshCancellationSource;
-			try {
-				const didRefresh = await this._refresh(refreshCancellationSource.token);
-				if (didRefresh && notify && !refreshCancellationSource.token.isCancellationRequested) {
+		this._refreshPromise?.cancel();
+		this._refreshPromise = null;
+		this._pendingRefreshNotify = this._pendingRefreshNotify || notify;
+
+		return this._refreshDelayer.trigger(() => {
+			const shouldNotify = this._pendingRefreshNotify;
+			this._pendingRefreshNotify = false;
+
+			const refreshPromise = this._refreshPromise = createCancelablePromise(async token => {
+				const didRefresh = await this._refresh(token);
+				if (didRefresh && shouldNotify) {
 					this._onDidRefresh();
 				}
-			} finally {
-				if (this._refreshCancellationSource === refreshCancellationSource) {
-					this._refreshCancellationSource = undefined;
+			});
+
+			return refreshPromise.then(() => {
+				if (this._refreshPromise === refreshPromise) {
+					this._refreshPromise = null;
 				}
-				refreshCancellationSource.dispose();
-			}
+			}, err => {
+				if (this._refreshPromise === refreshPromise) {
+					this._refreshPromise = null;
+				}
+				if (err instanceof CancellationError) {
+					return;
+				}
+				throw err;
+			});
 		});
 	}
 
 	private async _refresh(token: CancellationToken): Promise<boolean> {
 		try {
-			const directories = await this._discovery.directories();
+			const directories = await this._discovery.scan(token);
 			if (token.isCancellationRequested) {
 				return false;
 			}
@@ -1996,27 +2040,20 @@ class SessionDiscoveredEntry extends Disposable {
 				return false;
 			}
 
-			const plugin = mapToParsedPlugin(customizations);
-			if (token.isCancellationRequested) {
-				return false;
-			}
-
-			// Don't update `_customizations` / `_plugin` / `_directories` when cancelled.
+			// Don't update `_customizations` / `_directories` when cancelled.
 			// Otherwise a cancelled refresh could temporarily clear them and cause callers to see empty customizations.
 			this._customizations = customizations;
-			this._plugin = plugin;
 			this._directories = directories;
 			return true;
 		} catch (err) {
-			// Don't update `_customizations` / `_plugin` when cancelled.
+			// Don't update `_customizations` / `_directories` when cancelled.
 			// Otherwise a cancelled refresh could temporarily clear them and cause callers to see empty customizations.
 			if (token.isCancellationRequested) {
 				return false;
 			}
 			this._logService.warn(`[Copilot:SessionDiscoveredEntry] Discovery/bundle failed: ${err instanceof Error ? err.message : String(err)}`);
-			const hadState = this._customizations.length > 0 || this._plugin !== undefined || this._directories !== undefined;
+			const hadState = this._customizations.length > 0 || this._directories !== undefined;
 			this._customizations = [];
-			this._plugin = undefined;
 			this._directories = undefined;
 			return hadState;
 		}
@@ -2435,7 +2472,7 @@ class SessionPluginController extends Disposable {
 		]);
 
 		const discovered = entry?.currentCustomizations() ?? [];
-		const sessionPlugin = discovered.some(customization => this._isEnabled(customization)) ? entry?.currentPlugin() : undefined;
+		const sessionPlugin = discovered.some(customization => this._isEnabled(customization)) ? mapToParsedPlugin(discovered) : undefined;
 		const sessionPlugins: IParsedPlugin[] = sessionPlugin ? [sessionPlugin] : [];
 
 		return [
